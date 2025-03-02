@@ -65,4 +65,4 @@ python -m app.utils.db_viewer
 
 ### API Endpoints Testing
 
-Check `routers/chat.py` for API definitions.
+Check `routers/` for API definitions.
