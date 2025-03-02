@@ -47,10 +47,14 @@ The API will be available at http://localhost:8000.
 
 ### Unit Tests
 
-Run the storage-related unit tests:
+Run the unit tests of different modules:
 
 ```bash
 pytest -xvs app/tests/test_storage.py
+```
+
+```bash
+pytest -xvs app/tests/test_rag.py
 ```
 
 To view database contents for debugging:
