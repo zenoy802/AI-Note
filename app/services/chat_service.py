@@ -1,6 +1,11 @@
 import os
 import pdb
 from openai import OpenAI
+from typing import Dict, List, Optional
+
+from ..models.conversation import Conversation
+from ..repositories.conversation_repository import ConversationRepository
+
 
 class MessageTemplate:
     
@@ -28,6 +33,7 @@ class ChatClient:
         self.base_url = base_url
         self.model = model
         self.system_prompt = system_prompt
+        self.repository = ConversationRepository()
 
     def start_chat(self, user_input):
         messages = []
@@ -38,6 +44,10 @@ class ChatClient:
         completion = self.create_completion(messages)
         content = completion.choices[0].message.content
         messages.append(MessageTemplate("assistant", content).to_dict())
+        
+        # 存储对话记录
+        self._save_conversation(user_input, content)
+        
         return messages
     
     def continue_chat(self, user_input, history_messages):
@@ -47,6 +57,10 @@ class ChatClient:
         completion = self.create_completion(history_messages)
         content = completion.choices[0].message.content
         history_messages.append(MessageTemplate("assistant", content).to_dict())
+        
+        # 存储对话记录
+        self._save_conversation(user_input, content)
+        
         return history_messages
 
     def create_completion(self, messages):
@@ -59,11 +73,24 @@ class ChatClient:
             messages=messages
         )
         return completion
+    
+    def _save_conversation(self, user_input: str, model_response: str) -> None:
+        """保存对话到存储库"""
+        conversation = Conversation(
+            model_name=self.model,
+            user_input=user_input,
+            model_response=model_response,
+            metadata={
+                "system_prompt": self.system_prompt
+            }
+        )
+        self.repository.save_conversation(conversation)
 
 class ChatService:
     
     def __init__(self, chat_client_dict):
         self.chat_client_dict = chat_client_dict
+        self.repository = ConversationRepository()
 
     def start_chat(self, user_input):
         chat_dict = {}
@@ -80,8 +107,10 @@ class ChatService:
                 history_chat_dict[chat_client.model] = messages
         return history_chat_dict
     
-    def get_model_response(self, model, chat_dict):
-        messages = chat_dict.get(model)
-        if messages and messages[-1].get("role") == "assistant":
-            return messages[-1].get("content")
-        return None
+    def search_history(self, keyword: str, limit: int = 20) -> List[Conversation]:
+        """搜索历史对话"""
+        return self.repository.search_conversations(keyword, limit)
+    
+    def get_recent_conversations(self, days: int = 7) -> List[Conversation]:
+        """获取最近的对话"""
+        return self.repository.get_recent_conversations(days)

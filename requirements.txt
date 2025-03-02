@@ -10,3 +10,4 @@ openai
 pydantic
 typing-extensions
 python-multipart
+pytest

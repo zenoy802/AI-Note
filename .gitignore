@@ -401,3 +401,10 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# data folder
+data/
+*.db
+
+# test setting
+*.test

@@ -5,6 +5,9 @@ import os
 from ..services.chat_service import ChatService, ChatClient
 import pdb  # 添加这行
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from ..models.conversation import Conversation
+from ..repositories.conversation_repository import ConversationRepository
 
 # 加载环境变量
 load_dotenv()
@@ -94,31 +97,43 @@ async def continue_chat(request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/get_model_response/{model}")
-async def get_model_response(
-    model: str, 
-    chat_dict: Dict[str, List[Dict[str, str]]]
-):
-    if model not in MODEL_CONFIGS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported model: {model}"
-        )
-    
-    # 初始化单个模型的聊天服务
-    config = MODEL_CONFIGS[model]
-    chat_client = ChatClient(
-        api_key=config["api_key"],
-        base_url=config["base_url"],
-        model=config["model"],
-        system_prompt=config["system_prompt"]
-    )
-    chat_service = ChatService({model: chat_client})
-    
-    response = chat_service.get_model_response(model, chat_dict)
-    if response is None:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"No response found for model {model}"
-        )
-    return {"response": response} 
+# 添加历史搜索路由
+@router.get("/history/search")
+async def search_history(keyword: str, limit: int = 20):
+    """搜索历史对话记录"""
+    try:
+        repository = ConversationRepository()
+        results = repository.search_conversations(keyword, limit)
+        return {
+            "results": [conv.to_dict() for conv in results],
+            "count": len(results)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/history/recent")
+async def get_recent_history(days: int = 7, limit: int = 50):
+    """获取最近的对话记录"""
+    try:
+        repository = ConversationRepository()
+        results = repository.get_recent_conversations(days, limit)
+        return {
+            "results": [conv.to_dict() for conv in results],
+            "count": len(results)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/history/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """获取单个对话详情"""
+    try:
+        repository = ConversationRepository()
+        conversation = repository.get_conversation_by_id(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation.to_dict()
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e)) 
