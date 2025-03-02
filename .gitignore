@@ -402,6 +402,9 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
+# JetBrains PyCharm
+.idea/
+
 # data folder
 data/
 *.db
