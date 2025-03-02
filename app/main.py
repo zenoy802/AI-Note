@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routers import chat
+from .routers import search
 from dotenv import load_dotenv
 import os
 
@@ -26,6 +27,12 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(search.router, prefix="/api/search", tags=["search"])
+
+# 在注册路由后添加
+print("注册的路由:")
+for route in app.routes:
+    print(f"{route.methods} - {route.path}")
 
 @app.get("/")
 async def root():

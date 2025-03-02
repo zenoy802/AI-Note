@@ -11,3 +11,7 @@ pydantic
 typing-extensions
 python-multipart
 pytest
+chromadb
+tiktoken
+tenacity
+dashscope

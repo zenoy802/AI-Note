@@ -18,13 +18,13 @@ router = APIRouter()
 MODEL_CONFIGS = {
     "qwen": {
         "api_key": os.getenv("DASHSCOPE_API_KEY"),
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "base_url": os.getenv("DASHSCOPE_BASE_URL"),
         "model": "qwen-turbo",
         "system_prompt": "You are a helpful AI assistant."
     },
     "kimi": {
         "api_key": os.getenv("MOONSHOT_API_KEY"),
-        "base_url": "https://api.moonshot.cn/v1",
+        "base_url": os.getenv("MOONSHOT_BASE_URL"),
         "model": "moonshot-v1-8k",
         "system_prompt": "You are Kimi, a helpful AI assistant."
     }
