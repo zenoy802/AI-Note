@@ -124,7 +124,7 @@ async def get_recent_history(days: int = 7, limit: int = 50):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/history/{conversation_id}")
+@router.get("/history/conversation")
 async def get_conversation(conversation_id: str):
     """获取单个对话详情"""
     try:
@@ -136,4 +136,36 @@ async def get_conversation(conversation_id: str):
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/history/by_model")
+async def get_history_by_model(model_name: str, limit: int = 50, offset: int = 0):
+    """获取指定模型的对话历史"""
+    try:
+        if model_name not in MODEL_CONFIGS:
+            raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported model: {model_name}"
+                )
+        model = MODEL_CONFIGS[model_name]["model"]
+        repository = ConversationRepository()
+        conversations = repository.get_conversations_by_model(model, limit, offset)
+        
+        # 处理返回结果，提取ID和生成标题
+        results = []
+        for conv in conversations:
+            # 使用用户输入的前10个字符作为标题
+            title = conv.user_input[:10] + "..." if len(conv.user_input) > 10 else conv.user_input
+            
+            results.append({
+                "id": conv.id,
+                "title": title,
+                "timestamp": conv.timestamp
+            })
+            
+        return {
+            "results": results,
+            "count": len(results)
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 

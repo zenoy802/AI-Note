@@ -204,6 +204,35 @@ class ConversationRepository:
             limit=limit
         )
     
+    def get_conversations_by_model(self, model_name: str, limit: int = 50, offset: int = 0) -> List[Conversation]:
+        """根据模型名称获取对话列表"""
+        try:
+            # 构建查询
+            query = select(conversations).where(conversations.c.model_name == model_name)
+            
+            # 排序和分页
+            query = query.order_by(desc(conversations.c.timestamp)).limit(limit).offset(offset)
+            
+            # 执行查询
+            with self.engine.connect() as conn:
+                results = conn.execute(query).fetchall()
+            
+            # 将结果转换为Conversation对象列表
+            return [
+                Conversation(
+                    id=row.id,
+                    model_name=row.model_name,
+                    timestamp=row.timestamp,
+                    user_input=row.user_input,
+                    model_response=row.model_response,
+                    metadata=json.loads(row.metadata)
+                )
+                for row in results
+            ]
+        except SQLAlchemyError as e:
+            print(f"Error getting conversations by model: {e}")
+            raise
+    
     def _backup_to_json(self, conversation: Conversation) -> None:
         """备份对话到JSON文件"""
         date_str = conversation.timestamp.strftime("%Y-%m-%d")
