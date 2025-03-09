@@ -53,9 +53,11 @@ uvicorn app.main:app --reload
 ```
 The API will be available at http://localhost:8000.
 
+
+Start the Webview:
 ```bash
 cd frontend
-npm run
+npm run dev
 ```
 The Webview will be available at http://localhost:3000.
 
@@ -82,4 +84,4 @@ python -m app.utils.db_viewer
 
 ### API Endpoints Testing
 
-Check `routers/` for API definitions.
+Check `app/routers/` for API definitions.
