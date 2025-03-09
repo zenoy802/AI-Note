@@ -4,23 +4,9 @@ from pydantic import BaseModel
 import os
 
 from ..services.rag_service import RAGService
+from ..config import MODEL_CONFIGS
 
 router = APIRouter()
-
-MODEL_CONFIGS = {
-    "qwen": {
-        "api_key": os.getenv("DASHSCOPE_API_KEY"),
-        "base_url": os.getenv("DASHSCOPE_BASE_URL"),
-        "model": "qwen-turbo",
-        "system_prompt": "You are a helpful AI assistant."
-    },
-    "kimi": {
-        "api_key": os.getenv("MOONSHOT_API_KEY"),
-        "base_url": os.getenv("MOONSHOT_BASE_URL"),
-        "model": "moonshot-v1-8k",
-        "system_prompt": "You are Kimi, a helpful AI assistant."
-    }
-}
 
 rag_service = RAGService(model=MODEL_CONFIGS["qwen"]["model"], api_key=MODEL_CONFIGS["qwen"]["api_key"], base_url=MODEL_CONFIGS["qwen"]["base_url"])
 
@@ -63,4 +49,4 @@ async def get_index_status():
             # "last_updated": "unavailable"  # 在实际实现中需要存储最后更新时间
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))

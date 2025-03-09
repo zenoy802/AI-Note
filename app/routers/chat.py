@@ -8,27 +8,12 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from ..models.conversation import Conversation
 from ..repositories.conversation_repository import ConversationRepository
+from ..config import MODEL_CONFIGS
 
 # 加载环境变量
 load_dotenv()
 
 router = APIRouter()
-
-# 预定义可用的模型配置
-MODEL_CONFIGS = {
-    "qwen": {
-        "api_key": os.getenv("DASHSCOPE_API_KEY"),
-        "base_url": os.getenv("DASHSCOPE_BASE_URL"),
-        "model": "qwen-turbo",
-        "system_prompt": "You are a helpful AI assistant."
-    },
-    "kimi": {
-        "api_key": os.getenv("MOONSHOT_API_KEY"),
-        "base_url": os.getenv("MOONSHOT_BASE_URL"),
-        "model": "moonshot-v1-8k",
-        "system_prompt": "You are Kimi, a helpful AI assistant."
-    }
-}
 
 # 请求和响应模型
 class ChatRequest(BaseModel):
@@ -168,4 +153,4 @@ async def get_history_by_model(model_name: str, limit: int = 50, offset: int = 0
             "count": len(results)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))

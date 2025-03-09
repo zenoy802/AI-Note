@@ -11,25 +11,10 @@ sys.path.append(str(Path(__file__).parent.parent))
 from app.services.chat_service import ChatClient, ChatService
 from app.models.conversation import Conversation
 from app.repositories.conversation_repository import ConversationRepository
+from app.config import MODEL_CONFIGS
 
 # 加载环境变量
 load_dotenv(dotenv_path=Path(__file__).parent.parent / 'app' / '.env')
-
-# 预定义可用的模型配置，与routers/chat.py中保持一致
-MODEL_CONFIGS = {
-    "qwen": {
-        "api_key": os.getenv("DASHSCOPE_API_KEY"),
-        "base_url": os.getenv("DASHSCOPE_BASE_URL"),
-        "model": "qwen-turbo",
-        "system_prompt": "You are a helpful AI assistant."
-    },
-    "kimi": {
-        "api_key": os.getenv("MOONSHOT_API_KEY"),
-        "base_url": os.getenv("MOONSHOT_BASE_URL"),
-        "model": "moonshot-v1-8k",
-        "system_prompt": "You are Kimi, a helpful AI assistant."
-    }
-}
 
 # 从JSON文件加载预设问题列表
 def load_questions():
