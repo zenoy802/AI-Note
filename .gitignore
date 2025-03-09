@@ -411,3 +411,7 @@ data/
 
 # test setting
 *.test
+./.pytest_cache
+
+# my chat history questions
+store_chat_history/questions.json
