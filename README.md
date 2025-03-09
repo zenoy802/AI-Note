@@ -27,11 +27,15 @@ An API service for multi-model chat and conversation history management.
    ```
 
 3. Set up environment variables:
-   Create a `.env` file in the root directory with the following variables:
+   Create a `.env` file in the app directory with the following variables:
    ```
    DASHSCOPE_API_KEY=your_dashscope_api_key
    MOONSHOT_API_KEY=your_moonshot_api_key
    DEEPSEEK_API_KEY=your_deepseek_api_key
+
+   DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+   MOONSHOT_BASE_URL=https://api.moonshot.cn/v1
+   DEEPSEEK_BASE_URL=https://api.deepseek.com
    ```
 
 4. Install frontend dependencies:
