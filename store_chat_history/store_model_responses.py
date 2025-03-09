@@ -46,7 +46,7 @@ def initialize_chat_clients(model_names):
             api_key=config["api_key"],
             base_url=config["base_url"],
             model=config["model"],
-            system_prompt=config["system_prompt"]
+            system_prompt=config["system_prompt"] if "system_prompt" in config else None
         )
     
     return chat_clients
@@ -70,7 +70,9 @@ def store_chat_history(model_names=None):
     history_chat_dict = {}
     
     # 处理预设问题
-    for _, questions in enumerate(QUESTIONS):
+    for k, questions in enumerate(QUESTIONS):
+        if k > 1:
+            break
         for i, question in enumerate(questions):
             print(f"\n处理问题 {i+1}/{len(questions)}: {question}")
             

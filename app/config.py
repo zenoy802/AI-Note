@@ -9,13 +9,18 @@ MODEL_CONFIGS = {
     "qwen": {
         "api_key": os.getenv("DASHSCOPE_API_KEY"),
         "base_url": os.getenv("DASHSCOPE_BASE_URL"),
-        "model": "qwen-turbo",
+        "model": "qwen-max",
         "system_prompt": "You are a helpful AI assistant."
     },
     "kimi": {
         "api_key": os.getenv("MOONSHOT_API_KEY"),
         "base_url": os.getenv("MOONSHOT_BASE_URL"),
-        "model": "moonshot-v1-8k",
+        "model": "kimi-latest-8k",
         "system_prompt": "You are Kimi, a helpful AI assistant."
+    },
+    "deepseek": {
+        "api_key": os.getenv("DEEPSEEK_API_KEY"),
+        "base_url": os.getenv("DEEPSEEK_BASE_URL"),
+        "model": "deepseek-reasoner"
     }
 }

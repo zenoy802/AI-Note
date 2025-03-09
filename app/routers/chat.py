@@ -154,3 +154,10 @@ async def get_history_by_model(model_name: str, limit: int = 50, offset: int = 0
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/available_models")
+async def get_available_models():
+    """获取可用的模型列表"""
+    return {
+            "models": list(MODEL_CONFIGS.keys())
+        }
