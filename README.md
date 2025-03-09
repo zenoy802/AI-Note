@@ -21,7 +21,7 @@ An API service for multi-model chat and conversation history management.
    cd AI-Note
    ```
 
-2. Install dependencies:
+2. Install backend dependencies:
    ```bash
    pip install -r requirements.txt
    ```
@@ -31,6 +31,13 @@ An API service for multi-model chat and conversation history management.
    ```
    DASHSCOPE_API_KEY=your_dashscope_api_key
    MOONSHOT_API_KEY=your_moonshot_api_key
+   DEEPSEEK_API_KEY=your_deepseek_api_key
+   ```
+
+4. Install frontend dependencies:
+   ```bash
+   cd frontend
+   npm install
    ```
 
 ## Running the Application
@@ -40,8 +47,14 @@ Start the FastAPI server with hot reloading enabled:
 ```bash
 uvicorn app.main:app --reload
 ```
-
 The API will be available at http://localhost:8000.
+
+```bash
+cd frontend
+npm run
+```
+The Webview will be available at http://localhost:3000.
+
 
 ## Testing
 
