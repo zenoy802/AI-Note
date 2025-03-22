@@ -249,12 +249,36 @@ class ConversationRepository:
             
             # 执行查询
             with self.engine.connect() as conn:
-                try:
-                    results = conn.execute(search_sql, {"keyword": safe_keyword, "limit": limit}).fetchall()
-                    print(f"results: {results}")
-                except Exception as e:
-                    print(f"Search query error: {e}")
-                    return []
+                results = conn.execute(search_sql, {"keyword": safe_keyword, "limit": limit}).fetchall()
+        
+        except SQLAlchemyError as e:
+            print(f"Error searching messages: {e}")
+            results = []
+        
+        if not results:
+            # 降级为简单搜索
+            print(f"Fallback to simple search for keyword: {keyword}")
+            try:
+                query = select(
+                    messages.c.id,
+                    messages.c.conversation_id,
+                    messages.c.role,
+                    messages.c.content,
+                    messages.c.timestamp.label('messages_timestamp'),
+                    conversations.c.session_title,
+                    conversations.c.model_name,
+                    conversations.c.timestamp
+                ).select_from(
+                    messages.join(conversations, messages.c.conversation_id == conversations.c.id)
+                ).where(
+                    messages.c.content.like(f"%{keyword}%")
+                ).limit(limit)
+                
+                with self.engine.connect() as conn:
+                    results = conn.execute(query).fetchall()
+            
+            except SQLAlchemyError as e2:
+                print(f"Error during fallback search: {e2}")
             
             # 使用字典来跟踪已处理的对话ID，实现去重和合并
             conversation_dict = {}
@@ -307,9 +331,6 @@ class ConversationRepository:
             result_list = list(conversation_dict.values())
             
             return result_list
-        except SQLAlchemyError as e:
-            print(f"Error searching messages: {e}")
-            return []
     
     def delete_conversation(self, conversation_id: str) -> bool:
         """删除对话会话及其关联的所有消息"""
