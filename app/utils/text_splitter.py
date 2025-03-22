@@ -30,12 +30,43 @@ class TextSplitter:
         
         return chunks
     
-    def split_conversation(self, conversation: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """将对话拆分为多个块，保留元数据"""
-        combined_text = (
-            f"用户: {conversation['user_input']}\n"
-            f"模型({conversation['model_name']}): {conversation['model_response']}"
-        )
+    def split_conversation(self, conversation: Dict[str, Any], messages: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """将对话拆分为多个块，保留元数据
+        
+        Args:
+            conversation: 对话会话字典
+            messages: 消息列表字典，如果为None则尝试从conversation中获取user_input和model_response
+        """
+        if messages and len(messages) >= 2:
+            # 新结构：使用消息列表
+            user_messages = [msg for msg in messages if msg.get('role') == 'user']
+            assistant_messages = [msg for msg in messages if msg.get('role') == 'assistant']
+            
+            if user_messages and assistant_messages:
+                # 组合所有消息而不仅仅是第一条
+                combined_text = ""
+                
+                # 按照消息顺序交替添加用户和助手消息
+                # 假设消息是按时间顺序排列的
+                all_messages = sorted(
+                    user_messages + assistant_messages,
+                    key=lambda x: x.get('timestamp', 0)  # 按时间戳排序，如果没有则默认为0
+                )
+                
+                for msg in all_messages:
+                    if msg.get('role') == 'user':
+                        combined_text += f"用户: {msg['content']}\n"
+                    elif msg.get('role') == 'assistant':
+                        combined_text += f"模型({conversation['model_name']}): {msg['content']}\n"
+                
+                # 移除最后一个换行符
+                combined_text = combined_text.rstrip()
+            else:
+                # 如果没有足够的消息，返回空列表
+                return []
+        else:
+            # 如果没有足够的数据，返回空列表
+            return []
         
         text_chunks = self.split_text(combined_text)
         chunks = []
@@ -54,4 +85,4 @@ class TextSplitter:
                 }
             })
         
-        return chunks 
+        return chunks

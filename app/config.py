@@ -15,7 +15,7 @@ MODEL_CONFIGS = {
     "kimi": {
         "api_key": os.getenv("MOONSHOT_API_KEY"),
         "base_url": os.getenv("MOONSHOT_BASE_URL"),
-        "model": "kimi-latest-8k",
+        "model": "moonshot-v1-8k",
         "system_prompt": "You are Kimi, a helpful AI assistant."
     },
     "deepseek": {

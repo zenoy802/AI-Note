@@ -4,6 +4,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 import json
+from datetime import datetime
 
 from ..services.vector_db_service import VectorDBService
 from ..repositories.conversation_repository import ConversationRepository
@@ -34,11 +35,49 @@ class RAGService:
             # 获取所有对话，可能需要分页处理大量数据
             conversations = self.conversation_repo.get_conversations_by_time_range()
         
-        # 转换为字典列表
-        conversation_dicts = [conv.to_dict() for conv in conversations]
+        # 准备索引数据
+        indexed_count = 0
         
-        # 批量添加到向量数据库
-        return self.vector_db.add_conversations_batch(conversation_dicts)
+        # 处理每个对话
+        for conv in conversations:
+            try:
+                # 获取对话的消息
+                messages = self.conversation_repo.get_messages_by_conversation_id(conv.id)
+                
+                if len(messages) >= 2:  # 确保至少有一问一答
+                    # 转换为字典
+                    conv_dict = conv.to_dict()
+                    message_dicts = [msg.to_dict() for msg in messages]
+                    
+                    # 添加到向量数据库
+                    chunks = self.vector_db.text_splitter.split_conversation(conv_dict, message_dicts)
+                    
+                    if chunks:
+                        # 添加到集合
+                        ids = [chunk["id"] for chunk in chunks]
+                        texts = [chunk["text"] for chunk in chunks]
+                        metadatas = [
+                            {
+                                "parent_id": chunk["parent_id"],
+                                "model_name": chunk["model_name"],
+                                "timestamp": chunk["timestamp"].isoformat() if isinstance(chunk["timestamp"], datetime) else chunk["timestamp"],
+                                "metadata": json.dumps(chunk["metadata"])
+                            }
+                            for chunk in chunks
+                        ]
+                        
+                        self.vector_db.collection.add(
+                            ids=ids,
+                            documents=texts,
+                            metadatas=metadatas
+                        )
+                        
+                        indexed_count += len(ids)
+            except Exception as e:
+                print(f"Error indexing conversation {conv.id}: {e}")
+                continue
+        
+        return indexed_count
     
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(5))
     def generate_summary(self, query: str, context: str) -> str:
@@ -84,4 +123,4 @@ class RAGService:
             "query": query,
             "summary": summary,
             "results": results
-        } 
+        }

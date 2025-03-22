@@ -15,11 +15,13 @@ load_dotenv()
 
 router = APIRouter()
 
+class SingleModelChat(BaseModel):
+    user_input: str
+    conversation_id: str=None
+
 # 请求和响应模型
 class ChatRequest(BaseModel):
-    user_input: str
-    model_names: List[str]  # 添加模型名称列表
-    history_chat_dict: Optional[Dict[str, List[Dict[str, str]]]] = None
+    model_chats_dict: Dict[str, SingleModelChat]
 
 class ChatResponse(BaseModel):
     chat_dict: Dict[str, List[Dict[str, str]]]
@@ -29,7 +31,9 @@ async def start_chat(request: ChatRequest):
     try:
         # 根据请求的模型名称初始化聊天客户端
         chat_clients = {}
-        for model_name in request.model_names:
+        user_input_dict = {}
+        for model_name in request.model_chats_dict:
+            model_chat = request.model_chats_dict[model_name]
             if model_name not in MODEL_CONFIGS:
                 raise HTTPException(
                     status_code=400,
@@ -42,23 +46,28 @@ async def start_chat(request: ChatRequest):
                 model=config["model"],
                 system_prompt=config["system_prompt"]
             )
+            user_input_dict[model_name] = model_chat.user_input
         
         # 初始化聊天服务
         chat_service = ChatService(chat_clients)
-        chat_dict = chat_service.start_chat(request.user_input)
+        chat_dict = chat_service.start_chat(user_input_dict)
         return ChatResponse(chat_dict=chat_dict)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/continue_chat", response_model=ChatResponse)
 async def continue_chat(request: ChatRequest):
-    if not request.history_chat_dict:
+    if not request.model_chats_dict:
         return await start_chat(request)
     
     try:
         # 根据历史对话中的模型初始化聊天客户端
         chat_clients = {}
-        for model_name in request.model_names:
+        user_input_dict = {}
+        history_chat_dict = {}
+        
+        for model_name in request.model_chats_dict:
+            model_chat = request.model_chats_dict[model_name]
             if model_name not in MODEL_CONFIGS:
                 raise HTTPException(
                     status_code=400,
@@ -71,13 +80,12 @@ async def continue_chat(request: ChatRequest):
                 model=config["model"],
                 system_prompt=config["system_prompt"]
             )
+            user_input_dict[model_name] = model_chat.user_input
+            history_chat_dict[model_name] = model_chat.conversation_id
         
         # 初始化聊天服务
         chat_service = ChatService(chat_clients)
-        chat_dict = chat_service.continue_chat(
-            request.user_input, 
-            request.history_chat_dict
-        )
+        chat_dict = chat_service.continue_chat(user_input_dict, history_chat_dict)
         return ChatResponse(chat_dict=chat_dict)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -88,9 +96,10 @@ async def search_history(keyword: str, limit: int = 20):
     """搜索历史对话记录"""
     try:
         repository = ConversationRepository()
-        results = repository.search_conversations(keyword, limit)
+        results = repository.search_messages(keyword, limit)
+        del repository  # 确保资源被正确释放
         return {
-            "results": [conv.to_dict() for conv in results],
+            "results": results,
             "count": len(results)
         }
     except Exception as e:
@@ -102,6 +111,7 @@ async def get_recent_history(days: int = 7, limit: int = 50):
     try:
         repository = ConversationRepository()
         results = repository.get_recent_conversations(days, limit)
+        del repository  # 确保资源被正确释放
         return {
             "results": [conv.to_dict() for conv in results],
             "count": len(results)
@@ -114,10 +124,26 @@ async def get_conversation(conversation_id: str):
     """获取单个对话详情"""
     try:
         repository = ConversationRepository()
-        conversation = repository.get_conversation_by_id(conversation_id)
+        conversation = repository.get_messages_by_conversation_id(conversation_id)
+        del repository  # 确保资源被正确释放
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        return conversation.to_dict()
+        return conversation
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/history/title")
+async def get_conversation(title: str):
+    """获取单个对话详情"""
+    try:
+        repository = ConversationRepository()
+        conversation = repository.get_messages_by_title(title)
+        del repository  # 确保资源被正确释放
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
@@ -139,14 +165,7 @@ async def get_history_by_model(model_name: str, limit: int = 50, offset: int = 0
         # 处理返回结果，提取ID和生成标题
         results = []
         for conv in conversations:
-            # 使用用户输入的前10个字符作为标题
-            title = conv.user_input[:10] + "..." if len(conv.user_input) > 10 else conv.user_input
-            
-            results.append({
-                "id": conv.id,
-                "title": title,
-                "timestamp": conv.timestamp
-            })
+            results.append(conv.to_dict())
             
         return {
             "results": results,

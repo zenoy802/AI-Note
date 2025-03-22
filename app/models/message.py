@@ -1,28 +1,29 @@
 import uuid
 from datetime import datetime
-import json
-from typing import List, Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, Field
 
 
-class Conversation(BaseModel):
-    """对话会话数据模型，存储会话级信息"""
+class Message(BaseModel):
+    """消息数据模型，存储单条消息信息"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: Optional[str] = None
-    session_title: str = "新对话"
-    model_name: str
+    conversation_id: str
+    role: Literal["user", "assistant", "system"]
+    content: str
+    sequence_id: int
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    metadata: dict = Field(default_factory=dict)
+    feedback: Optional[Literal["like", "dislike"]] = None
     
     def to_dict(self):
         """转换为字典格式"""
         return {
             "id": self.id,
-            "user_id": self.user_id,
-            "session_title": self.session_title,
-            "model_name": self.model_name,
+            "conversation_id": self.conversation_id,
+            "role": self.role,
+            "content": self.content,
+            "sequence_id": self.sequence_id,
             "timestamp": self.timestamp.isoformat(),
-            "metadata": self.metadata
+            "feedback": self.feedback
         }
     
     @classmethod

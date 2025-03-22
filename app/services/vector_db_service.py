@@ -107,10 +107,18 @@ class VectorDBService:
         """创建自定义embedding函数集成OpenAI"""
         return DashScopeEmbeddingFunction()
     
-    def add_conversation(self, conversation: Dict[str, Any]) -> List[str]:
-        """添加一个对话到向量数据库，返回添加的chunk ID列表"""
+    def add_conversation(self, conversation: Dict[str, Any], messages: List[Dict[str, Any]] = None) -> List[str]:
+        """添加一个对话到向量数据库，返回添加的chunk ID列表
+        
+        Args:
+            conversation: 对话会话字典
+            messages: 消息列表字典，如果为None则尝试从conversation中获取user_input和model_response
+        """
         # 将对话分块
-        chunks = self.text_splitter.split_conversation(conversation)
+        chunks = self.text_splitter.split_conversation(conversation, messages)
+        
+        if not chunks:
+            return []
         
         # 准备添加到ChromaDB的数据
         ids = [chunk["id"] for chunk in chunks]
@@ -161,15 +169,26 @@ class VectorDBService:
             for i in range(len(documents))
         ]
     
-    def add_conversations_batch(self, conversations: List[Dict[str, Any]]) -> int:
-        """批量添加多个对话，返回添加的chunk总数"""
+    def add_conversations_batch(self, conversations: List[Dict[str, Any]], messages_dict: Dict[str, List[Dict[str, Any]]] = None) -> int:
+        """批量添加多个对话，返回添加的chunk总数
+        
+        Args:
+            conversations: 对话会话字典列表
+            messages_dict: 以对话ID为键，消息列表为值的字典
+        """
         all_ids = []
         
         for conversation in conversations:
             try:
-                chunk_ids = self.add_conversation(conversation)
+                # 获取当前对话的消息
+                conv_messages = None
+                if messages_dict and conversation.get('id') in messages_dict:
+                    conv_messages = messages_dict[conversation['id']]
+                
+                # 添加对话
+                chunk_ids = self.add_conversation(conversation, conv_messages)
                 all_ids.extend(chunk_ids)
             except Exception as e:
                 print(f"Error adding conversation {conversation.get('id', 'unknown')}: {e}")
         
-        return len(all_ids) 
+        return len(all_ids)

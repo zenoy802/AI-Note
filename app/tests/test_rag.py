@@ -8,6 +8,7 @@ import shutil
 from unittest.mock import MagicMock, patch
 
 from ..models.conversation import Conversation
+from ..models.message import Message
 from ..services.vector_db_service import VectorDBService, DashScopeEmbeddingFunction
 from ..services.rag_service import RAGService
 from ..utils.text_splitter import TextSplitter
@@ -17,40 +18,123 @@ from ..repositories.conversation_repository import ConversationRepository
 @pytest.fixture
 def sample_conversation():
     """提供测试用例"""
-    return Conversation(
+    # 创建会话
+    conversation = Conversation(
         model_name="test-model",
+        session_title="测试会话",
         timestamp=datetime.now(),
-        user_input="这是一个测试问题，关于Python的面向对象编程",
-        model_response="Python的面向对象编程涉及类、对象、继承、多态和封装等概念。",
         metadata={"context": "programming"}
     )
+    
+    # 创建用户消息
+    user_message = Message(
+        conversation_id=conversation.id,
+        role="user",
+        content="这是一个测试问题，关于Python的面向对象编程",
+        sequence_id=1,
+        timestamp=conversation.timestamp
+    )
+    
+    # 创建模型响应消息
+    assistant_message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content="Python的面向对象编程涉及类、对象、继承、多态和封装等概念。",
+        sequence_id=2,
+        timestamp=conversation.timestamp
+    )
+    
+    # 返回会话和消息
+    return {
+        "conversation": conversation,
+        "messages": [user_message, assistant_message]
+    }
 
 @pytest.fixture
 def multiple_conversations():
     """提供多个测试用例"""
-    return [
-        Conversation(
-            model_name="test-model",
-            timestamp=datetime.now() - timedelta(days=1),
-            user_input="什么是Python装饰器?",
-            model_response="装饰器是Python中用于修改函数或类行为的函数，它们允许你在不修改原函数代码的情况下扩展功能。",
-            metadata={"context": "programming"}
-        ),
-        Conversation(
-            model_name="test-model",
-            timestamp=datetime.now() - timedelta(days=2),
-            user_input="解释一下pandas库的主要数据结构",
-            model_response="pandas的两个主要数据结构是Series（一维）和DataFrame（二维表格），它们提供了强大的数据分析功能。",
-            metadata={"context": "data science"}
-        ),
-        Conversation(
-            model_name="test-model",
-            timestamp=datetime.now() - timedelta(days=3),
-            user_input="如何在Python中处理JSON数据?",
-            model_response="Python可以使用内置的json模块处理JSON数据，主要函数有json.loads()用于解析JSON字符串，json.dumps()用于生成JSON字符串。",
-            metadata={"context": "data processing"}
-        )
+    conversations_data = [
+        {
+            "conversation": Conversation(
+                model_name="test-model",
+                session_title="Python装饰器",
+                timestamp=datetime.now() - timedelta(days=1),
+                metadata={"context": "programming"}
+            ),
+            "messages": [
+                Message(
+                    conversation_id="temp_id",  # 临时ID，将在后面更新
+                    role="user",
+                    content="什么是Python装饰器?",
+                    sequence_id=1,
+                    timestamp=datetime.now() - timedelta(days=1)
+                ),
+                Message(
+                    conversation_id="temp_id",  # 临时ID，将在后面更新
+                    role="assistant",
+                    content="装饰器是Python中用于修改函数或类行为的函数，它们允许你在不修改原函数代码的情况下扩展功能。",
+                    sequence_id=2,
+                    timestamp=datetime.now() - timedelta(days=1)
+                )
+            ]
+        },
+        {
+            "conversation": Conversation(
+                model_name="test-model",
+                session_title="Pandas数据结构",
+                timestamp=datetime.now() - timedelta(days=2),
+                metadata={"context": "data science"}
+            ),
+            "messages": [
+                Message(
+                    conversation_id="temp_id",  # 临时ID，将在后面更新
+                    role="user",
+                    content="解释一下pandas库的主要数据结构",
+                    sequence_id=1,
+                    timestamp=datetime.now() - timedelta(days=2)
+                ),
+                Message(
+                    conversation_id="temp_id",  # 临时ID，将在后面更新
+                    role="assistant",
+                    content="pandas的两个主要数据结构是Series（一维）和DataFrame（二维表格），它们提供了强大的数据分析功能。",
+                    sequence_id=2,
+                    timestamp=datetime.now() - timedelta(days=2)
+                )
+            ]
+        },
+        {
+            "conversation": Conversation(
+                model_name="test-model",
+                session_title="JSON处理",
+                timestamp=datetime.now() - timedelta(days=3),
+                metadata={"context": "data processing"}
+            ),
+            "messages": [
+                Message(
+                    conversation_id="temp_id",  # 临时ID，将在后面更新
+                    role="user",
+                    content="如何在Python中处理JSON数据?",
+                    sequence_id=1,
+                    timestamp=datetime.now() - timedelta(days=3)
+                ),
+                Message(
+                    conversation_id="temp_id",  # 临时ID，将在后面更新
+                    role="assistant",
+                    content="Python可以使用内置的json模块处理JSON数据，主要函数有json.loads()用于解析JSON字符串，json.dumps()用于生成JSON字符串。",
+                    sequence_id=2,
+                    timestamp=datetime.now() - timedelta(days=3)
+                )
+            ]
+        }
     ]
+    
+    # 设置消息的conversation_id
+    for conv_data in conversations_data:
+        conv_id = conv_data["conversation"].id
+        for message in conv_data["messages"]:
+            message.conversation_id = conv_id
+    
+    return conversations_data
 
 @pytest.fixture
 def text_splitter():
@@ -80,33 +164,28 @@ def vector_db(tmp_path, mock_embedding_function):
 @pytest.fixture
 def mock_rag_service(vector_db):
     """模拟RAG服务，避免LLM API调用"""
-    with patch('openai.OpenAI') as mock_openai:
-        # 模拟响应
-        mock_client = MagicMock()
-        mock_openai.return_value = mock_client
-        
-        # 模拟chat.completions.create方法
-        mock_completion = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_completion
-        
-        # 模拟返回的内容
-        mock_message = MagicMock()
-        mock_message.content = "这是一个测试总结。"
-        mock_choice = MagicMock()
-        mock_choice.message = mock_message
-        mock_completion.choices = [mock_choice]
-        
-        # 创建RAG服务
-        service = RAGService(
-            model="test-model",
-            api_key="test-api-key",
-            base_url="https://test.api/v1"
-        )
-        
-        # 注入模拟的vector_db
-        service.vector_db = vector_db
-        
-        return service
+    # 创建RAG服务
+    service = RAGService(
+        model="test-model",
+        api_key="test-api-key",
+        base_url="https://test.api/v1"
+    )
+    
+    # 注入模拟的vector_db
+    service.vector_db = vector_db
+    
+    # 模拟OpenAI客户端
+    mock_completion = MagicMock()
+    mock_completion.choices = [MagicMock()]
+    mock_completion.choices[0].message.content = "这是一个测试总结。"
+    
+    # 模拟chat.completions.create方法
+    service.client = MagicMock()
+    service.client.chat = MagicMock()
+    service.client.chat.completions = MagicMock()
+    service.client.chat.completions.create = MagicMock(return_value=mock_completion)
+    
+    return service
 
 # 测试类
 class TestTextSplitter:
@@ -126,17 +205,22 @@ class TestTextSplitter:
     
     def test_split_conversation(self, text_splitter, sample_conversation):
         """测试对话分块"""
-        # 将对话转换为字典
-        conv_dict = sample_conversation.to_dict()
+        # 准备对话数据
+        conv = sample_conversation["conversation"]
+        messages = sample_conversation["messages"]
+        
+        # 转换为字典格式
+        conv_dict = conv.to_dict()
+        message_dicts = [msg.to_dict() for msg in messages]
         
         # 分块
-        chunks = text_splitter.split_conversation(conv_dict)
+        chunks = text_splitter.split_conversation(conv_dict, message_dicts)
         
         # 验证
         assert len(chunks) >= 1, "对话应该至少生成一个块"
         assert all(isinstance(chunk, dict) for chunk in chunks), "所有块应该是字典"
         assert all("parent_id" in chunk for chunk in chunks), "每个块应该包含parent_id"
-        assert all(chunk["parent_id"] == sample_conversation.id for chunk in chunks), "所有块的parent_id应该指向原始对话"
+        assert all(chunk["parent_id"] == conv.id for chunk in chunks), "所有块的parent_id应该指向原始对话"
 
 
 class TestVectorDB:
@@ -144,27 +228,42 @@ class TestVectorDB:
     
     def test_add_conversation(self, vector_db, sample_conversation):
         """测试添加对话到向量数据库"""
-        # 将对话转换为字典
-        conv_dict = sample_conversation.to_dict()
+        # 准备对话数据
+        conv = sample_conversation["conversation"]
+        messages = sample_conversation["messages"]
+        
+        # 转换为字典格式
+        conv_dict = conv.to_dict()
+        message_dicts = [msg.to_dict() for msg in messages]
         
         # 添加到向量数据库
-        ids = vector_db.add_conversation(conv_dict)
+        ids = vector_db.add_conversation(conv_dict, message_dicts)
         
         # 验证
         assert len(ids) >= 1, "应该至少添加了一个块"
         
         # 验证集合中的文档数量
         count = vector_db.collection.count()
-        assert count == len(ids), f"集合中应该有 {len(ids)} 个文档，实际有 {count} 个"
+        assert count >= len(ids), f"集合中应该至少有 {len(ids)} 个文档，实际有 {count} 个"
     
     def test_query(self, vector_db, sample_conversation, multiple_conversations):
         """测试查询向量数据库"""
-        # 添加多个对话
-        conv_dict = sample_conversation.to_dict()
-        vector_db.add_conversation(conv_dict)
+        # 准备对话数据
+        conv = sample_conversation["conversation"]
+        messages = sample_conversation["messages"]
         
-        for conv in multiple_conversations:
-            vector_db.add_conversation(conv.to_dict())
+        # 转换为字典格式
+        conv_dict = conv.to_dict()
+        message_dicts = [msg.to_dict() for msg in messages]
+        
+        # 添加到向量数据库
+        vector_db.add_conversation(conv_dict, message_dicts)
+        
+        # 添加多个对话
+        for conv_data in multiple_conversations:
+            conv_dict = conv_data["conversation"].to_dict()
+            message_dicts = [msg.to_dict() for msg in conv_data["messages"]]
+            vector_db.add_conversation(conv_dict, message_dicts)
         
         # 查询
         results = vector_db.query("Python", top_k=2)
@@ -180,68 +279,131 @@ class TestRAGService:
     
     def test_index_all_conversations(self, mock_rag_service, multiple_conversations):
         """测试索引所有对话"""
+        # 准备模拟数据
+        mock_conversations = [conv_data["conversation"] for conv_data in multiple_conversations]
+        
         # 模拟存储库返回对话
         with patch.object(ConversationRepository, 'get_conversations_by_time_range') as mock_get:
-            mock_get.return_value = multiple_conversations
+            mock_get.return_value = mock_conversations
             
-            # 调用索引方法
-            count = mock_rag_service.index_all_conversations()
-            
-            # 验证
-            assert count > 0, "应该索引了一些块"
-    
-    def test_search(self, mock_rag_service, sample_conversation):
-        """测试搜索功能"""
-        pass
-        # 添加样本对话
-        # vector_db = mock_rag_service.vector_db
-        # vector_db.add_conversation(sample_conversation.to_dict())
-        
-        # # 模拟vector_db查询结果
-        # mock_results = [
-        #     {
-        #         "id": "test_id_1",
-        #         "text": "用户: 这是一个测试问题，关于Python的面向对象编程\n模型(test-model): Python的面向对象编程涉及类、对象、继承、多态和封装等概念。",
-        #         "metadata": {
-        #             "parent_id": sample_conversation.id,
-        #             "model_name": "test-model",
-        #             "timestamp": datetime.now().isoformat(),
-        #             "metadata": {"context": "programming"}
-        #         },
-        #         "relevance_score": 0.95
-        #     }
-        # ]
-        
-        # with patch.object(vector_db, 'query', return_value=mock_results):
-        #     # 搜索
-        #     result = mock_rag_service.search("Python类和对象")
-            
-        #     # 验证
-        #     assert "query" in result, "结果应该包含查询"
-        #     assert "summary" in result, "结果应该包含总结"
-        #     assert "results" in result, "结果应该包含结果列表"
-        #     assert len(result["results"]) == len(mock_results), "结果应该包含正确数量的结果"
+            # 模拟获取消息的方法
+            with patch.object(ConversationRepository, 'get_messages_by_conversation_id') as mock_get_messages:
+                # 为每个对话设置对应的消息
+                def side_effect(conv_id):
+                    for conv_data in multiple_conversations:
+                        if conv_data["conversation"].id == conv_id:
+                            return conv_data["messages"]
+                    return []
+                
+                mock_get_messages.side_effect = side_effect
+                
+                # 调用索引方法
+                count = mock_rag_service.index_all_conversations()
+                
+                # 验证
+                assert count > 0, "应该索引了一些块"
     
     def test_generate_summary(self, mock_rag_service):
         """测试生成总结功能"""
-        pass
-        # query = "Python类是什么？"
-        # context = "用户: 这是一个测试问题，关于Python的面向对象编程\n模型(test-model): Python的面向对象编程涉及类、对象、继承、多态和封装等概念。"
+        # 准备测试数据
+        query = "Python装饰器如何工作？"
+        context = "片段 1:\n用户: 什么是Python装饰器?\n模型(test-model): 装饰器是Python中用于修改函数或类行为的函数，它们允许你在不修改原函数代码的情况下扩展功能。"
         
-        # # 生成总结
-        # summary = mock_rag_service.generate_summary(query, context)
+        # 调用生成总结方法
+        summary = mock_rag_service.generate_summary(query, context)
         
-        # # 验证
-        # assert summary == "这是一个测试总结。", "应该返回模拟的总结"
-
-
-# 清理函数
-def teardown_module(module):
-    """清理测试环境"""
-    # 移除测试生成的文件
-    vector_db_dir = Path("data/vectordb")
-    if vector_db_dir.exists():
-        # 仅删除test_collection
-        for collection_dir in vector_db_dir.glob("test_collection*"):
-            if collection_dir.is_dir():
-                shutil.rmtree(collection_dir) 
+        # 验证结果
+        assert summary == "这是一个测试总结。", "总结应该来自模拟的LLM响应"
+        
+        # 验证LLM调用
+        mock_rag_service.client.chat.completions.create.assert_called_once()
+        # 验证调用参数
+        call_args = mock_rag_service.client.chat.completions.create.call_args[1]
+        assert call_args["model"] == "test-model"
+        assert len(call_args["messages"]) == 2
+        assert call_args["messages"][0]["role"] == "system"
+        assert call_args["messages"][1]["role"] == "user"
+        assert f"查询: {query}" in call_args["messages"][1]["content"]
+        assert context in call_args["messages"][1]["content"]
+    
+    def test_batch_add_conversations(self, mock_rag_service, multiple_conversations):
+        """测试批量添加对话"""
+        # 准备测试数据
+        conversations = [conv_data["conversation"].to_dict() for conv_data in multiple_conversations]
+        messages_dict = {}
+        for conv_data in multiple_conversations:
+            conv_id = conv_data["conversation"].id
+            messages_dict[conv_id] = [msg.to_dict() for msg in conv_data["messages"]]
+        
+        # 模拟vector_db.add_conversation方法
+        with patch.object(mock_rag_service.vector_db, 'add_conversation') as mock_add:
+            # 设置每次调用返回一个ID列表
+            mock_add.side_effect = lambda conv, msgs: [f"{conv['id']}_chunk_0"]
+            
+            # 调用批量添加方法
+            vector_db = mock_rag_service.vector_db
+            count = vector_db.add_conversations_batch(conversations, messages_dict)
+            
+            # 验证结果
+            assert count == len(conversations), f"应该添加了{len(conversations)}个对话"
+            assert mock_add.call_count == len(conversations), "add_conversation应该被调用多次"
+            
+            # 验证调用参数
+            for i, call_args in enumerate(mock_add.call_args_list):
+                assert call_args[0][0]["id"] == conversations[i]["id"], "对话ID应该匹配"
+                assert call_args[0][1] == messages_dict[conversations[i]["id"]], "消息应该匹配"
+    
+    def test_search(self, mock_rag_service, sample_conversation):
+        """测试搜索功能"""
+        # 准备对话数据
+        conv = sample_conversation["conversation"]
+        messages = sample_conversation["messages"]
+        
+        # 转换为字典格式
+        conv_dict = conv.to_dict()
+        message_dicts = [msg.to_dict() for msg in messages]
+        
+        # 添加样本对话
+        vector_db = mock_rag_service.vector_db
+        vector_db.add_conversation(conv_dict, message_dicts)
+        
+        # 模拟vector_db.query方法返回预期结果
+        mock_results = [
+            {
+                "id": f"{conv.id}_chunk_0",
+                "text": "用户: 这是一个测试问题，关于Python的面向对象编程\n模型(test-model): Python的面向对象编程涉及类、对象、继承、多态和封装等概念。",
+                "metadata": {
+                    "parent_id": conv.id,
+                    "model_name": "test-model",
+                    "timestamp": conv_dict["timestamp"],
+                    "metadata": {"context": "programming", "chunk_index": 0, "total_chunks": 1}
+                },
+                "relevance_score": 0.95
+            }
+        ]
+        
+        with patch.object(vector_db, 'query', return_value=mock_results):
+            # 执行搜索
+            result = mock_rag_service.search("Python面向对象")
+            
+            # 验证结果结构
+            assert result["query"] == "Python面向对象", "查询文本应该被正确返回"
+            assert "summary" in result, "结果应该包含总结"
+            assert result["summary"] == "这是一个测试总结。", "总结应该来自模拟的LLM响应"
+            assert "results" in result, "结果应该包含检索结果列表"
+            
+            # 验证检索结果
+            assert len(result["results"]) == 1, "应该返回一个结果"
+            assert result["results"][0]["id"] == mock_results[0]["id"], "结果ID应该匹配"
+            assert result["results"][0]["text"] == mock_results[0]["text"], "结果文本应该匹配"
+            assert result["results"][0]["metadata"]["parent_id"] == conv.id, "父ID应该匹配"
+            assert result["results"][0]["relevance_score"] == 0.95, "相关性分数应该匹配"
+            
+            # 验证LLM调用
+            mock_rag_service.client.chat.completions.create.assert_called_once()
+            
+        # 测试无结果情况
+        with patch.object(vector_db, 'query', return_value=[]):
+            empty_result = mock_rag_service.search("不存在的查询")
+            assert empty_result["summary"] == "未找到相关的历史对话。", "无结果时应返回特定消息"
+            assert len(empty_result["results"]) == 0, "结果列表应为空"

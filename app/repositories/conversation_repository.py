@@ -1,13 +1,14 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
-from sqlalchemy import select, desc, and_, text, or_
+from sqlalchemy import select, desc, and_, text, or_, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..models.conversation import Conversation
-from ..utils.db_utils import get_engine, init_db, conversations
+from ..models.message import Message
+from ..utils.db_utils import get_engine, init_db, conversations, messages
 
 
 class ConversationRepository:
@@ -23,15 +24,15 @@ class ConversationRepository:
         self.backup_dir.mkdir(exist_ok=True, parents=True)
     
     def save_conversation(self, conversation: Conversation) -> str:
-        """保存对话到数据库和JSON备份"""
+        """保存对话会话到数据库"""
         try:
             # 准备插入数据
             insert_values = {
                 'id': conversation.id,
+                'user_id': conversation.user_id,
+                'session_title': conversation.session_title,
                 'model_name': conversation.model_name,
                 'timestamp': conversation.timestamp,
-                'user_input': conversation.user_input,
-                'model_response': conversation.model_response,
                 'metadata': json.dumps(conversation.metadata)
             }
             
@@ -47,9 +48,32 @@ class ConversationRepository:
             # 记录错误并重新抛出异常
             print(f"Error saving conversation: {e}")
             raise
+            
+    def save_message(self, message: Message) -> str:
+        """保存消息到数据库"""
+        try:
+            # 准备插入数据
+            insert_values = {
+                'id': message.id,
+                'conversation_id': message.conversation_id,
+                'role': message.role,
+                'content': message.content,
+                'sequence_id': message.sequence_id,
+                'timestamp': message.timestamp,
+                'feedback': message.feedback
+            }
+            
+            # 执行插入操作
+            with self.engine.begin() as conn:
+                conn.execute(messages.insert().values(**insert_values))
+            
+            return message.id
+        except SQLAlchemyError as e:
+            print(f"Error saving message: {e}")
+            raise
     
     def get_conversation_by_id(self, conversation_id: str) -> Optional[Conversation]:
-        """根据ID获取单个对话"""
+        """根据ID获取单个对话会话"""
         try:
             # 构建查询
             query = select(conversations).where(conversations.c.id == conversation_id)
@@ -64,15 +88,87 @@ class ConversationRepository:
             # 将结果转换为Conversation对象
             return Conversation(
                 id=result.id,
+                user_id=result.user_id,
+                session_title=result.session_title,
                 model_name=result.model_name,
                 timestamp=result.timestamp,
-                user_input=result.user_input,
-                model_response=result.model_response,
                 metadata=json.loads(result.metadata)
             )
         except SQLAlchemyError as e:
             print(f"Error getting conversation: {e}")
             raise
+            
+    def get_messages_by_conversation_id(self, conversation_id: str) -> List[Message]:
+        """根据会话ID获取所有消息"""
+        try:
+            # 构建查询
+            query = select(messages).where(messages.c.conversation_id == conversation_id).order_by(messages.c.sequence_id)
+            
+            # 执行查询
+            with self.engine.connect() as conn:
+                results = conn.execute(query).fetchall()
+            
+            # 将结果转换为Message对象列表
+            return [
+                Message(
+                    id=row.id,
+                    conversation_id=row.conversation_id,
+                    role=row.role,
+                    content=row.content,
+                    sequence_id=row.sequence_id,
+                    timestamp=row.timestamp,
+                    feedback=row.feedback
+                )
+                for row in results
+            ]
+        except SQLAlchemyError as e:
+            print(f"Error getting messages: {e}")
+            raise
+
+    def get_messages_by_title(self, title: str) -> Dict[str, List[Message]]:
+        """根据会话标题获取所有消息，按模型名称分组并返回每个模型最近一次对话的消息
+        
+        Args:
+            title: 会话标题（模糊匹配）
+            
+        Returns:
+            以模型名称为键，消息列表为值的字典
+        """
+        try:
+            # 构建模糊匹配条件
+            title_pattern = f"%{title}%"
+            
+            # 查找所有匹配标题的会话
+            query = select(conversations).where(conversations.c.session_title.like(title_pattern))
+            
+            # 执行查询
+            with self.engine.connect() as conn:
+                conversation_results = conn.execute(query).fetchall()
+            
+            if not conversation_results:
+                return {}
+            
+            # 按模型名称分组，获取每个模型最新的会话
+            model_latest_conversations = {}
+            for row in conversation_results:
+                model_name = row.model_name
+                if model_name not in model_latest_conversations or row.timestamp > model_latest_conversations[model_name]["timestamp"]:
+                    model_latest_conversations[model_name] = {
+                        "id": row.id,
+                        "timestamp": row.timestamp
+                    }
+            
+            # 获取每个最新会话的消息
+            result_dict = {}
+            for model_name, conv_info in model_latest_conversations.items():
+                messages_list = self.get_messages_by_conversation_id(conv_info["id"])
+                result_dict[model_name] = messages_list
+            
+            return result_dict
+        except SQLAlchemyError as e:
+            print(f"Error getting messages by title: {e}")
+            return {}
+        
     
     def get_conversations_by_time_range(
         self, 
@@ -81,7 +177,7 @@ class ConversationRepository:
         limit: int = 50,
         offset: int = 0
     ) -> List[Conversation]:
-        """按时间范围获取对话列表"""
+        """按时间范围获取对话会话列表"""
         try:
             # 构建条件
             conditions = []
@@ -106,10 +202,10 @@ class ConversationRepository:
             return [
                 Conversation(
                     id=row.id,
+                    user_id=row.user_id,
+                    session_title=row.session_title,
                     model_name=row.model_name,
                     timestamp=row.timestamp,
-                    user_input=row.user_input,
-                    model_response=row.model_response,
                     metadata=json.loads(row.metadata)
                 )
                 for row in results
@@ -118,76 +214,116 @@ class ConversationRepository:
             print(f"Error getting conversations by time range: {e}")
             raise
     
-    def search_conversations(self, keyword: str, limit: int = 20) -> List[Conversation]:
-        """搜索对话内容"""
+    def search_messages(self, keyword: str, limit: int = 20, context_chars: int = 100) -> List[Dict[str, Any]]:
+        """搜索消息内容，返回匹配的会话信息和匹配文本的上下文
+        
+        Args:
+            keyword: 搜索关键词
+            limit: 最大返回结果数
+            context_chars: 关键词前后的上下文字符数
+            
+        Returns:
+            包含会话信息和匹配文本上下文的字典列表，同一个对话的不同消息会合并到一条记录中
+        """
         try:
             # 处理搜索关键词 - 移除潜在的问题字符或使用引号包围
             safe_keyword = keyword
             
             # FTS5 搜索使用原始SQL
             search_sql = text("""
-                SELECT c.* FROM conversations c
-                JOIN conversations_fts fts ON c.id = fts.id
-                WHERE conversations_fts MATCH :keyword
-                ORDER BY rank
+                SELECT  c.*
+                        ,m.id AS messages_id
+                        ,m.conversation_id
+                        ,m.role
+                        ,m.content
+                        ,m.sequence_id
+                        ,m.timestamp AS messages_timestamp
+                        ,m.feedback
+                FROM messages m
+                JOIN conversations c ON m.conversation_id = c.id
+                JOIN messages_fts fts ON m.rowid = fts.rowid
+                WHERE messages_fts MATCH :keyword
+                ORDER BY c.timestamp DESC
                 LIMIT :limit
             """)
             
             # 执行查询
             with self.engine.connect() as conn:
-                results = conn.execute(search_sql, {"keyword": safe_keyword, "limit": limit}).fetchall()
+                try:
+                    results = conn.execute(search_sql, {"keyword": safe_keyword, "limit": limit}).fetchall()
+                    print(f"results: {results}")
+                except Exception as e:
+                    print(f"Search query error: {e}")
+                    return []
             
-            # 将结果转换为Conversation对象列表
-            return [
-                Conversation(
-                    id=row.id,
-                    model_name=row.model_name,
-                    timestamp=row.timestamp,
-                    user_input=row.user_input,
-                    model_response=row.model_response,
-                    metadata=json.loads(row.metadata)
-                )
-                for row in results
-            ]
+            # 使用字典来跟踪已处理的对话ID，实现去重和合并
+            conversation_dict = {}
+            
+            for row in results:
+                # 提取关键词上下文
+                content = row.content
+                keyword_pos = content.lower().find(keyword.lower())
+                
+                if keyword_pos >= 0:
+                    # 计算上下文的起始和结束位置
+                    start_pos = max(0, keyword_pos - context_chars)
+                    end_pos = min(len(content), keyword_pos + len(keyword) + context_chars)
+                    
+                    # 提取上下文
+                    context_text = content[start_pos:end_pos]
+                    
+                    # 如果上下文不是从文本开头开始，添加省略号
+                    if start_pos > 0:
+                        context_text = "..." + context_text
+                    
+                    # 如果上下文不是到文本结尾结束，添加省略号
+                    if end_pos < len(content):
+                        context_text = context_text + "..."
+                    
+                    # 构建匹配上下文对象
+                    match_context = {
+                        "role": row.role,
+                        "text": context_text,
+                        "timestamp": row.messages_timestamp.isoformat() if isinstance(row.messages_timestamp, datetime) else row.messages_timestamp
+                    }
+                    
+                    # 检查该对话是否已在结果集中
+                    if row.id in conversation_dict:
+                        # 如果已存在，将匹配上下文添加到该对话的匹配列表中
+                        conversation_dict[row.id]["match_contexts"].append(match_context)
+                    else:
+                        # 如果不存在，创建新的对话记录
+                        conversation_dict[row.id] = {
+                            "conversation": {
+                                "id": row.id,
+                                "session_title": row.session_title,
+                                "model_name": row.model_name,
+                                "timestamp": row.timestamp.isoformat() if isinstance(row.timestamp, datetime) else row.timestamp,
+                            },
+                            "match_contexts": [match_context]
+                        }
+            
+            # 将字典转换为列表返回
+            result_list = list(conversation_dict.values())
+            
+            return result_list
         except SQLAlchemyError as e:
-            print(f"Error searching conversations: {e}")
-            
-            # 降级为简单搜索
-            try:
-                query = select(conversations).where(
-                    or_(
-                        conversations.c.user_input.like(f"%{keyword}%"),
-                        conversations.c.model_response.like(f"%{keyword}%")
-                    )
-                ).limit(limit)
-                
-                with self.engine.connect() as conn:
-                    results = conn.execute(query).fetchall()
-                
-                return [
-                    Conversation(
-                        id=row.id,
-                        model_name=row.model_name,
-                        timestamp=row.timestamp,
-                        user_input=row.user_input,
-                        model_response=row.model_response,
-                        metadata=json.loads(row.metadata)
-                    )
-                    for row in results
-                ]
-            except SQLAlchemyError as e2:
-                print(f"Error during fallback search: {e2}")
-                return []
+            print(f"Error searching messages: {e}")
+            return []
     
     def delete_conversation(self, conversation_id: str) -> bool:
-        """删除对话"""
+        """删除对话会话及其关联的所有消息"""
         try:
-            # 构建删除语句
-            delete_stmt = conversations.delete().where(conversations.c.id == conversation_id)
+            # 先删除关联的消息
+            delete_messages_stmt = messages.delete().where(messages.c.conversation_id == conversation_id)
             
-            # 执行删除
+            # 再删除会话
+            delete_conv_stmt = conversations.delete().where(conversations.c.id == conversation_id)
+            
+            # 在一个事务中执行两个删除操作
             with self.engine.begin() as conn:
-                result = conn.execute(delete_stmt)
+                conn.execute(delete_messages_stmt)
+                result = conn.execute(delete_conv_stmt)
                 return result.rowcount > 0
         except SQLAlchemyError as e:
             print(f"Error deleting conversation: {e}")
@@ -205,7 +341,7 @@ class ConversationRepository:
         )
     
     def get_conversations_by_model(self, model_name: str, limit: int = 50, offset: int = 0) -> List[Conversation]:
-        """根据模型名称获取对话列表"""
+        """根据模型名称获取对话会话列表"""
         try:
             # 构建查询
             query = select(conversations).where(conversations.c.model_name == model_name)
@@ -221,10 +357,10 @@ class ConversationRepository:
             return [
                 Conversation(
                     id=row.id,
+                    user_id=row.user_id,
+                    session_title=row.session_title,
                     model_name=row.model_name,
                     timestamp=row.timestamp,
-                    user_input=row.user_input,
-                    model_response=row.model_response,
                     metadata=json.loads(row.metadata)
                 )
                 for row in results
@@ -234,7 +370,7 @@ class ConversationRepository:
             raise
     
     def _backup_to_json(self, conversation: Conversation) -> None:
-        """备份对话到JSON文件"""
+        """备份对话会话到JSON文件"""
         date_str = conversation.timestamp.strftime("%Y-%m-%d")
         backup_file = self.backup_dir / f"{date_str}.json"
         
@@ -254,4 +390,4 @@ class ConversationRepository:
         # 添加新对话并保存
         data.append(conv_dict)
         with open(backup_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2) 
+            json.dump(data, f, ensure_ascii=False, indent=2)
