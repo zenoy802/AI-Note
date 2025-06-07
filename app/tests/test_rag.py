@@ -75,6 +75,14 @@ def vector_db(tmp_path, mock_embedding_function):
         
         # 创建并返回VectorDBService实例
         service = VectorDBService(collection_name="test_collection")
+        
+        # 确保集合是空的
+        count = service.collection.count()
+        if count > 0:
+            # 获取所有文档ID
+            all_ids = service.collection.get()['ids']
+            service.collection.delete(ids=all_ids)
+            
         return service
 
 @pytest.fixture
@@ -144,6 +152,13 @@ class TestVectorDB:
     
     def test_add_conversation(self, vector_db, sample_conversation):
         """测试添加对话到向量数据库"""
+        # 确保集合是空的
+        count = vector_db.collection.count()
+        if count > 0:
+            # 获取所有文档ID
+            all_ids = vector_db.collection.get()['ids']
+            vector_db.collection.delete(ids=all_ids)
+            
         # 将对话转换为字典
         conv_dict = sample_conversation.to_dict()
         
@@ -159,6 +174,13 @@ class TestVectorDB:
     
     def test_query(self, vector_db, sample_conversation, multiple_conversations):
         """测试查询向量数据库"""
+        # 确保集合是空的
+        count = vector_db.collection.count()
+        if count > 0:
+            # 获取所有文档ID
+            all_ids = vector_db.collection.get()['ids']
+            vector_db.collection.delete(ids=all_ids)
+            
         # 添加多个对话
         conv_dict = sample_conversation.to_dict()
         vector_db.add_conversation(conv_dict)
@@ -180,6 +202,13 @@ class TestRAGService:
     
     def test_index_all_conversations(self, mock_rag_service, multiple_conversations):
         """测试索引所有对话"""
+        # 确保集合是空的
+        count = mock_rag_service.vector_db.collection.count()
+        if count > 0:
+            # 获取所有文档ID
+            all_ids = mock_rag_service.vector_db.collection.get()['ids']
+            mock_rag_service.vector_db.collection.delete(ids=all_ids)
+            
         # 模拟存储库返回对话
         with patch.object(ConversationRepository, 'get_conversations_by_time_range') as mock_get:
             mock_get.return_value = multiple_conversations
@@ -241,7 +270,16 @@ def teardown_module(module):
     # 移除测试生成的文件
     vector_db_dir = Path("data/vectordb")
     if vector_db_dir.exists():
-        # 仅删除test_collection
-        for collection_dir in vector_db_dir.glob("test_collection*"):
+        # 删除所有测试集合
+        for collection_dir in vector_db_dir.glob("test_*"):
             if collection_dir.is_dir():
-                shutil.rmtree(collection_dir) 
+                shutil.rmtree(collection_dir)
+                
+    # 清理临时目录中的测试数据库
+    import tempfile
+    temp_dir = Path(tempfile.gettempdir())
+    for test_dir in temp_dir.glob("pytest-of-*"):
+        if test_dir.is_dir() and test_dir.name.startswith("pytest-of-"):
+            for vectordb_dir in test_dir.glob("**/test_vectordb"):
+                if vectordb_dir.is_dir():
+                    shutil.rmtree(vectordb_dir)

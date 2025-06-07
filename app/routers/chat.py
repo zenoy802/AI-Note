@@ -69,7 +69,7 @@ async def continue_chat(request: ChatRequest):
                 api_key=config["api_key"],
                 base_url=config["base_url"],
                 model=config["model"],
-                system_prompt=config["system_prompt"]
+                system_prompt=config["system_prompt"] if "system_prompt" in config else None
             )
         
         # 初始化聊天服务

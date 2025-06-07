@@ -415,3 +415,5 @@ data/
 
 # my chat history questions
 store_chat_history/questions.json
+
+.DS_Store

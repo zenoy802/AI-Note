@@ -1,8 +1,11 @@
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-# 加载环境变量
-load_dotenv()
+# 获取当前文件所在目录
+current_dir = Path(__file__).parent
+# 加载环境变量，指定.env文件的路径
+load_dotenv(current_dir / ".env")
 
 # 预定义可用的模型配置
 MODEL_CONFIGS = {
@@ -15,7 +18,7 @@ MODEL_CONFIGS = {
     "kimi": {
         "api_key": os.getenv("MOONSHOT_API_KEY"),
         "base_url": os.getenv("MOONSHOT_BASE_URL"),
-        "model": "kimi-latest-8k",
+        "model": "kimi-latest",
         "system_prompt": "You are Kimi, a helpful AI assistant."
     },
     "deepseek": {
