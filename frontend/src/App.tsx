@@ -1,58 +1,26 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import Box from '@mui/material/Box';
-import { Typography, Button, Paper } from '@mui/material';
+import { ThemeProvider, CssBaseline, Box, Button, Typography, Paper, alpha } from '@mui/material';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
-// 导入组件
+// Components
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ChatPage from './pages/ChatPage';
 import SearchPage from './pages/SearchPage';
 import HistoryPage from './pages/HistoryPage';
 
-// 创建主题
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#f50057',
-    },
-    background: {
-      default: '#f5f5f5',
-      paper: '#ffffff',
-    },
-  },
-  typography: {
-    fontFamily: '"-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif',
-  },
-  components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-          borderRadius: 8,
-        },
-      },
-    },
-    MuiPaper: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
-        },
-      },
-    },
-  },
-});
+// Theme
+import { createAppTheme } from './theme';
+import { useTheme as useAppTheme } from './hooks/useTheme';
 
 // 错误边界组件
-class ErrorBoundary extends Component<{ children: ReactNode, fallback?: ReactNode }> {
-  state = { hasError: false, error: null };
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
 
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
@@ -64,24 +32,65 @@ class ErrorBoundary extends Component<{ children: ReactNode, fallback?: ReactNod
 
   render() {
     if (this.state.hasError) {
-      // 自定义错误回退UI
-      return this.props.fallback || (
-        <Paper sx={{ p: 3, m: 2, maxWidth: 600, mx: 'auto', mt: 10 }}>
-          <Typography variant="h5" color="error" gutterBottom>页面加载出错</Typography>
-          <Typography variant="body1" paragraph>
-            抱歉，页面加载过程中发生了错误。请尝试刷新页面或返回首页。
-          </Typography>
-          <Button 
-            variant="contained" 
-            color="primary"
-            onClick={() => {
-              this.setState({ hasError: false });
-              window.location.href = '/';
+      return (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
+            p: 3,
+            bgcolor: '#f5f5f5',
+          }}
+        >
+          <Paper
+            elevation={0}
+            sx={{
+              p: 4,
+              maxWidth: 500,
+              textAlign: 'center',
+              borderRadius: '20px',
+              border: '1px solid',
+              borderColor: 'divider',
             }}
           >
-            返回首页
-          </Button>
-        </Paper>
+            <Box
+              sx={{
+                width: 80,
+                height: 80,
+                borderRadius: '20px',
+                bgcolor: alpha('#f43f5e', 0.1),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mx: 'auto',
+                mb: 3,
+              }}
+            >
+              <ErrorOutlineIcon sx={{ fontSize: 40, color: '#f43f5e' }} />
+            </Box>
+            <Typography variant="h5" fontWeight={700} gutterBottom>
+              页面加载出错
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              抱歉，页面加载过程中发生了错误。请尝试刷新页面或返回首页。
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<RefreshIcon />}
+              onClick={() => {
+                this.setState({ hasError: false });
+                window.location.reload();
+              }}
+              sx={{
+                mt: 2,
+                background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+              }}
+            >
+              刷新页面
+            </Button>
+          </Paper>
+        </Box>
       );
     }
 
@@ -89,28 +98,56 @@ class ErrorBoundary extends Component<{ children: ReactNode, fallback?: ReactNod
   }
 }
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { mode, toggleTheme } = useAppTheme();
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+
+  const theme = createAppTheme(mode);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-        <Header />
-        <Sidebar />
+      <Box
+        sx={{
+          display: 'flex',
+          height: '100vh',
+          overflow: 'hidden',
+          bgcolor: 'background.default',
+        }}
+      >
+        <Header mode={mode} onToggleTheme={toggleTheme} />
+        <Sidebar selectedModels={selectedModels} />
         <Box
           component="main"
           sx={{
             flexGrow: 1,
             p: 3,
-            mt: 8, // 为顶部导航栏留出空间
-            height: 'calc(100vh - 64px)',
+            pt: 10,
+            height: '100vh',
             overflow: 'auto',
           }}
         >
           <ErrorBoundary>
             <Routes>
-              <Route path="/" element={<ChatPage />} />
-              <Route path="/chat" element={<ChatPage />} />
-              <Route path="/search" element={<SearchPage />} />
+              <Route
+                path="/"
+                element={
+                  <ChatPage
+                    selectedModels={selectedModels}
+                    onModelsChange={setSelectedModels}
+                  />
+                }
+              />
+              <Route
+                path="/chat"
+                element={
+                  <ChatPage
+                    selectedModels={selectedModels}
+                    onModelsChange={setSelectedModels}
+                  />
+                }
+              />
+              <Route path="/search" element={<SearchPage selectedModels={selectedModels} />} />
               <Route path="/history" element={<HistoryPage />} />
             </Routes>
           </ErrorBoundary>
@@ -118,6 +155,10 @@ const App: React.FC = () => {
       </Box>
     </ThemeProvider>
   );
+};
+
+const App: React.FC = () => {
+  return <AppContent />;
 };
 
 export default App;

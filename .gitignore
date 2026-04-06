@@ -417,3 +417,10 @@ data/
 store_chat_history/questions.json
 
 .DS_Store
+
+# Frontend build output
+frontend/dist/
+
+# claude code
+.claude/
+CLAUDE.md
