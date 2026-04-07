@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   TextField,
@@ -17,6 +17,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import StorageIcon from '@mui/icons-material/Storage';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { colors } from '../theme';
@@ -46,6 +48,9 @@ const SearchPage: React.FC<SearchPageProps> = ({ selectedModels }) => {
   const [results, setResults] = useState<SearchResult | null>(null);
   const [topK, setTopK] = useState<number>(5);
   const [error, setError] = useState<string | null>(null);
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [indexStatus, setIndexStatus] = useState<{ indexed_chunks: number } | null>(null);
+  const [indexMessage, setIndexMessage] = useState<string | null>(null);
 
   const handleSearch = async () => {
     if (!query.trim() || loading) return;
@@ -79,6 +84,142 @@ const SearchPage: React.FC<SearchPageProps> = ({ selectedModels }) => {
       handleSearch();
     }
   };
+
+  // 获取索引状态
+  const fetchIndexStatus = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/search/index/status');
+      setIndexStatus(response.data);
+      return response.data;
+    } catch (err) {
+      console.error('Failed to fetch index status:', err);
+      return null;
+    }
+  }, []);
+
+  // 保存索引状态到 localStorage
+  const saveIndexingState = (isActive: boolean, message: string = '') => {
+    if (isActive) {
+      localStorage.setItem('indexingState', JSON.stringify({
+        isIndexing: true,
+        message,
+        timestamp: Date.now()
+      }));
+    } else {
+      localStorage.removeItem('indexingState');
+    }
+  };
+
+  // 恢复索引状态
+  const restoreIndexingState = useCallback(async () => {
+    const saved = localStorage.getItem('indexingState');
+    if (saved) {
+      try {
+        const state = JSON.parse(saved);
+        const age = Date.now() - state.timestamp;
+        // 如果状态在30分钟内，恢复它
+        if (age < 30 * 60 * 1000) {
+          setIsIndexing(true);
+          setIndexMessage(state.message || '索引任务进行中...');
+          // 立即获取最新状态
+          const status = await fetchIndexStatus();
+          // 如果已经看到索引数量变化，可能已经完成
+          if (status) {
+            setIndexStatus(status);
+          }
+          return true;
+        } else {
+          localStorage.removeItem('indexingState');
+        }
+      } catch {
+        localStorage.removeItem('indexingState');
+      }
+    }
+    return false;
+  }, [fetchIndexStatus]);
+
+  // 触发重新索引
+  const handleReindex = async () => {
+    if (isIndexing) return;
+
+    setIsIndexing(true);
+    setIndexMessage('索引任务已开始');
+    saveIndexingState(true, '索引任务已开始');
+
+    try {
+      const response = await axios.post('/api/search/index', {
+        days_limit: null, // 索引所有对话
+      });
+
+      const msg = response.data.message || '索引任务进行中...';
+      setIndexMessage(msg);
+      saveIndexingState(true, msg);
+
+      // 轮询检查索引状态
+      let attempts = 0;
+      const maxAttempts = 60; // 最多轮询60次（2分钟）
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const statusRes = await axios.get('/api/search/index/status');
+          setIndexStatus(statusRes.data);
+
+          // 如果索引完成或达到最大尝试次数，停止轮询
+          if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            setIsIndexing(false);
+            setIndexMessage('索引状态已更新');
+            saveIndexingState(false);
+          }
+        } catch (err) {
+          console.error('Failed to poll index status:', err);
+        }
+      }, 2000); // 每2秒检查一次
+
+      // 60秒后自动停止轮询状态
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setIsIndexing(false);
+        saveIndexingState(false);
+      }, 60000);
+
+    } catch (err: any) {
+      console.error('Indexing error:', err);
+      setError(err.response?.data?.detail || '索引失败，请稍后重试');
+      setIsIndexing(false);
+      saveIndexingState(false);
+    }
+  };
+
+  // 组件挂载时获取索引状态
+  useEffect(() => {
+    // 先尝试恢复之前的索引状态
+    restoreIndexingState().then((wasRestored) => {
+      // 无论如何都获取一次最新状态
+      fetchIndexStatus();
+
+      // 如果恢复了状态，继续轮询
+      if (wasRestored) {
+        const pollInterval = setInterval(async () => {
+          try {
+            const status = await fetchIndexStatus();
+            if (status) {
+              setIndexStatus(status);
+            }
+          } catch (err) {
+            console.error('Failed to poll index status:', err);
+          }
+        }, 3000);
+
+        // 30秒后停止轮询
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          setIsIndexing(false);
+          saveIndexingState(false);
+        }, 30000);
+      }
+    });
+  }, [fetchIndexStatus, restoreIndexingState]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -119,9 +260,40 @@ const SearchPage: React.FC<SearchPageProps> = ({ selectedModels }) => {
         <Typography variant="h5" fontWeight={700} gutterBottom>
           知识搜索
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          通过语义搜索查找您的历史对话，AI 将为您智能匹配相关内容
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+            通过语义搜索查找您的历史对话，AI 将为您智能匹配相关内容
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleReindex}
+            disabled={isIndexing}
+            startIcon={isIndexing ? <CircularProgress size={16} /> : <RefreshIcon />}
+            sx={{
+              borderRadius: '8px',
+              textTransform: 'none',
+            }}
+          >
+            {isIndexing ? '索引中...' : '重新索引'}
+          </Button>
+        </Box>
+
+        {/* 索引状态提示 */}
+        {(indexMessage || indexStatus) && (
+          <Alert
+            severity={isIndexing ? 'info' : 'success'}
+            sx={{ mb: 2 }}
+            icon={<StorageIcon />}
+          >
+            {indexMessage && <div>{indexMessage}</div>}
+            {indexStatus && (
+              <div style={{ marginTop: 4, fontSize: '0.875rem', opacity: 0.8 }}>
+                已索引对话片段: {indexStatus.indexed_chunks} 个
+              </div>
+            )}
+          </Alert>
+        )}
 
         <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
           <TextField

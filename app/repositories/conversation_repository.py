@@ -120,11 +120,41 @@ class ConversationRepository:
     
     def search_conversations(self, keyword: str, limit: int = 20) -> List[Conversation]:
         """搜索对话内容"""
+        # 先尝试使用LIKE搜索，更可靠且支持部分匹配
         try:
-            # 处理搜索关键词 - 移除潜在的问题字符或使用引号包围
-            safe_keyword = keyword
-            
-            # FTS5 搜索使用原始SQL
+            query = select(conversations).where(
+                or_(
+                    conversations.c.user_input.like(f"%{keyword}%"),
+                    conversations.c.model_response.like(f"%{keyword}%")
+                )
+            ).order_by(desc(conversations.c.timestamp)).limit(limit)
+
+            with self.engine.connect() as conn:
+                results = conn.execute(query).fetchall()
+
+            if results:
+                return [
+                    Conversation(
+                        id=row.id,
+                        model_name=row.model_name,
+                        timestamp=row.timestamp,
+                        user_input=row.user_input,
+                        model_response=row.model_response,
+                        metadata=json.loads(row.metadata)
+                    )
+                    for row in results
+                ]
+        except SQLAlchemyError as e:
+            print(f"Error during LIKE search: {e}")
+
+        # 如果LIKE搜索没有结果，尝试FTS5全文搜索（处理更复杂的查询）
+        try:
+            # 转义FTS5特殊字符，避免解析错误
+            # FTS5特殊字符: " * : ( ) { } [ ] - + ~ < > = ^ / AND OR NOT
+            safe_keyword = keyword.replace('"', '""')
+            # 包装在双引号中作为短语搜索
+            safe_keyword = f'"{safe_keyword}"'
+
             search_sql = text("""
                 SELECT c.* FROM conversations c
                 JOIN conversations_fts fts ON c.id = fts.id
@@ -132,12 +162,10 @@ class ConversationRepository:
                 ORDER BY rank
                 LIMIT :limit
             """)
-            
-            # 执行查询
+
             with self.engine.connect() as conn:
                 results = conn.execute(search_sql, {"keyword": safe_keyword, "limit": limit}).fetchall()
-            
-            # 将结果转换为Conversation对象列表
+
             return [
                 Conversation(
                     id=row.id,
@@ -150,34 +178,8 @@ class ConversationRepository:
                 for row in results
             ]
         except SQLAlchemyError as e:
-            print(f"Error searching conversations: {e}")
-            
-            # 降级为简单搜索
-            try:
-                query = select(conversations).where(
-                    or_(
-                        conversations.c.user_input.like(f"%{keyword}%"),
-                        conversations.c.model_response.like(f"%{keyword}%")
-                    )
-                ).limit(limit)
-                
-                with self.engine.connect() as conn:
-                    results = conn.execute(query).fetchall()
-                
-                return [
-                    Conversation(
-                        id=row.id,
-                        model_name=row.model_name,
-                        timestamp=row.timestamp,
-                        user_input=row.user_input,
-                        model_response=row.model_response,
-                        metadata=json.loads(row.metadata)
-                    )
-                    for row in results
-                ]
-            except SQLAlchemyError as e2:
-                print(f"Error during fallback search: {e2}")
-                return []
+            print(f"Error during FTS5 search: {e}")
+            return []
     
     def delete_conversation(self, conversation_id: str) -> bool:
         """删除对话"""

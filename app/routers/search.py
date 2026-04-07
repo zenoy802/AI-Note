@@ -18,6 +18,7 @@ class IndexRequest(BaseModel):
     days_limit: Optional[int] = None
 
 @router.post("/search")
+@router.post("/semantic")
 async def search_conversations(request: SearchRequest):
     """搜索历史对话并生成总结"""
     try:

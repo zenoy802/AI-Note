@@ -136,16 +136,24 @@ class VectorDBService:
     
     def query(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """根据查询文本检索相关的对话片段"""
+        # 先检查集合中是否有数据
+        if self.collection.count() == 0:
+            return []
+
         results = self.collection.query(
             query_texts=[query_text],
             n_results=top_k
         )
-        
+
         documents = results["documents"][0]
         metadatas = results["metadatas"][0]
         ids = results["ids"][0]
         distances = results.get("distances", [[0] * len(ids)])[0]
-        
+
+        # 处理空结果情况（documents可能为[None]）
+        if not documents or documents[0] is None:
+            return []
+
         return [
             {
                 "id": ids[i],
