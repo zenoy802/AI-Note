@@ -222,7 +222,7 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedModels = [] }) => {
             💡 提示
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            按 Enter 快速发送消息，Shift+Enter 换行
+            Enter 发送，Shift/Cmd/Ctrl+Enter 换行
           </Typography>
         </Box>
       </Box>

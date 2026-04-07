@@ -2,13 +2,18 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 import os
+import traceback
+import logging
 from ..services.chat_service import ChatService, ChatClient
-import pdb  # 添加这行
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from ..models.conversation import Conversation
 from ..repositories.conversation_repository import ConversationRepository
 from ..config import MODEL_CONFIGS
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # 加载环境变量
 load_dotenv()
@@ -26,28 +31,40 @@ class ChatResponse(BaseModel):
 
 @router.post("/start_chat", response_model=ChatResponse)
 async def start_chat(request: ChatRequest):
+    logger.info(f"=== start_chat called ===")
+    logger.info(f"Request user_input: {request.user_input}")
+    logger.info(f"Request model_names: {request.model_names}")
+    logger.info(f"Request history_chat_dict: {request.history_chat_dict}")
     try:
         # 根据请求的模型名称初始化聊天客户端
         chat_clients = {}
         for model_name in request.model_names:
+            logger.info(f"Processing model: {model_name}")
             if model_name not in MODEL_CONFIGS:
+                logger.error(f"Unsupported model: {model_name}")
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unsupported model: {model_name}"
                 )
             config = MODEL_CONFIGS[model_name]
+            logger.info(f"Model config: api_key={'***' if config.get('api_key') else 'MISSING'}, base_url={config.get('base_url')}, model={config.get('model')}")
             chat_clients[model_name] = ChatClient(
                 api_key=config["api_key"],
                 base_url=config["base_url"],
                 model=config["model"],
-                system_prompt=config["system_prompt"]
+                system_prompt=config.get("system_prompt")
             )
-        
+            logger.info(f"ChatClient created for {model_name}")
+
         # 初始化聊天服务
         chat_service = ChatService(chat_clients)
+        logger.info(f"ChatService initialized, calling start_chat...")
         chat_dict = chat_service.start_chat(request.user_input)
+        logger.info(f"start_chat completed, chat_dict keys: {chat_dict.keys()}")
         return ChatResponse(chat_dict=chat_dict)
     except Exception as e:
+        logger.error(f"ERROR in start_chat: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/continue_chat", response_model=ChatResponse)
