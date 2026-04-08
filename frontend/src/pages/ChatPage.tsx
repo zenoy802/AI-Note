@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   TextField,
@@ -9,11 +9,11 @@ import {
   IconButton,
   alpha,
   Tooltip,
-  Fade,
   Chip,
   Avatar,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
+import StopIcon from '@mui/icons-material/Stop';
 import ClearIcon from '@mui/icons-material/Clear';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
@@ -21,7 +21,6 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { MessageBubble } from '../components/MessageBubble';
 import { ModelCard } from '../components/ModelCard';
 import { colors } from '../theme';
 import { useTheme } from '@mui/material/styles';
@@ -30,10 +29,18 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   model?: string;
+  id?: string;
 }
 
 interface ChatHistory {
   [key: string]: Array<{ role: string; content: string }>;
+}
+
+interface StreamEvent {
+  type: 'start' | 'delta' | 'done' | 'error' | 'complete';
+  model?: string;
+  content?: string;
+  error?: string;
 }
 
 interface ChatPageProps {
@@ -50,14 +57,16 @@ const getModelColor = (model?: string): string => {
   return colors.primary.main;
 };
 
+const createMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
 const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) => {
   const theme = useTheme();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // 获取可用模型列表
   useEffect(() => {
@@ -78,6 +87,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
     };
 
     fetchModels();
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   // 处理模型切换
@@ -102,7 +115,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
-    const userMessage: Message = { role: 'user', content: input };
+    const userInput = input;
+    const userMessage: Message = { role: 'user', content: userInput };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setLoading(true);
@@ -120,29 +134,116 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
         });
       }
 
-      const endpoint = messages.length > 0 ? '/api/chat/continue_chat' : '/api/chat/start_chat';
-      const response = await axios.post(endpoint, {
-        user_input: input,
-        model_names: selectedModels,
-        history_chat_dict: Object.keys(historyChat).length > 0 ? historyChat : undefined,
+      const assistantMessageIds: Record<string, string> = {};
+      selectedModels.forEach((model) => {
+        assistantMessageIds[model] = createMessageId();
       });
 
-      const chatDict = response.data.chat_dict;
+      setMessages((prev) => [
+        ...prev,
+        ...selectedModels.map((model) => ({
+          role: 'assistant' as const,
+          content: '',
+          model,
+          id: assistantMessageIds[model],
+        })),
+      ]);
 
-      Object.entries(chatDict).forEach(([model, responses]: [string, any[]]) => {
-        const lastResponse = responses[responses.length - 1];
-        if (lastResponse && lastResponse.role === 'assistant') {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'assistant',
-              content: lastResponse.content,
-              model,
-            },
-          ]);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      const response = await fetch('/api/chat/stream_chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          user_input: userInput,
+          model_names: selectedModels,
+          history_chat_dict: Object.keys(historyChat).length > 0 ? historyChat : undefined,
+        }),
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`请求失败: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      const appendDelta = (model: string, content: string) => {
+        const targetId = assistantMessageIds[model];
+        if (!targetId) return;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === targetId
+              ? {
+                  ...msg,
+                  content: msg.content + content,
+                }
+              : msg
+          )
+        );
+      };
+
+      const setError = (model: string, error?: string) => {
+        const targetId = assistantMessageIds[model];
+        if (!targetId) return;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === targetId
+              ? {
+                  ...msg,
+                  content: msg.content || `抱歉，${model} 响应失败：${error || '未知错误'}`,
+                }
+              : msg
+          )
+        );
+      };
+
+      const handleStreamEvent = (event: StreamEvent) => {
+        if (event.type === 'delta' && event.model && event.content) {
+          appendDelta(event.model, event.content);
+          return;
         }
-      });
+        if (event.type === 'error' && event.model) {
+          setError(event.model, event.error);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        lines.forEach((line) => {
+          const payload = line.trim();
+          if (!payload) return;
+          const event = JSON.parse(payload) as StreamEvent;
+          handleStreamEvent(event);
+        });
+      }
+
+      const finalPayload = buffer.trim();
+      if (finalPayload) {
+        const event = JSON.parse(finalPayload) as StreamEvent;
+        handleStreamEvent(event);
+      }
     } catch (error) {
+      const isAbortError =
+        (error instanceof DOMException && error.name === 'AbortError') ||
+        (typeof error === 'object' &&
+          error !== null &&
+          'name' in error &&
+          (error as { name?: string }).name === 'AbortError');
+      if (isAbortError) {
+        return;
+      }
       console.error('Error sending message:', error);
       setMessages((prev) => [
         ...prev,
@@ -153,12 +254,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
         },
       ]);
     } finally {
+      abortControllerRef.current = null;
       setLoading(false);
     }
   };
 
+  const handleStop = () => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setLoading(false);
+  };
+
   // 处理按键事件 - 支持 Enter 发送, Shift+Enter / Cmd+Enter / Ctrl+Enter 换行
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     if (e.key !== 'Enter') return;
 
     // 如果有任何修饰键（Shift/Cmd/Ctrl），则换行
@@ -187,9 +295,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
   const getModelMessages = (model: string): Message[] => {
     return messages.filter((msg) => msg.role === 'user' || msg.model === model);
   };
-
-  // 获取用户消息列表（用于展示）
-  const userMessages = messages.filter((msg) => msg.role === 'user');
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -553,21 +658,25 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
           />
           <Button
             variant="contained"
-            color="primary"
-            endIcon={<SendIcon />}
-            onClick={handleSend}
-            disabled={!input.trim() || loading}
+            color={loading ? 'error' : 'primary'}
+            endIcon={loading ? <StopIcon /> : <SendIcon />}
+            onClick={loading ? handleStop : handleSend}
+            disabled={!loading && !input.trim()}
             sx={{
               py: 1.5,
               px: 3,
               minWidth: 100,
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+              background: loading
+                ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
               '&:hover': {
-                background: 'linear-gradient(135deg, #5558e0 0%, #7c4fe0 100%)',
+                background: loading
+                  ? 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
+                  : 'linear-gradient(135deg, #5558e0 0%, #7c4fe0 100%)',
               },
             }}
           >
-            发送
+            {loading ? '停止' : '发送'}
           </Button>
         </Box>
       </Paper>

@@ -1,8 +1,10 @@
 import os
 import logging
 import traceback
+import asyncio
+import threading
 from openai import OpenAI
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable, Any
 
 from ..models.conversation import Conversation
 from ..repositories.conversation_repository import ConversationRepository
@@ -71,7 +73,45 @@ class ChatClient:
         
         return history_messages
 
-    def create_completion(self, messages):
+    def stream_chat(
+        self,
+        user_input,
+        history_messages=None,
+        on_delta: Optional[Callable[[str], None]] = None,
+        cancel_event: Optional[threading.Event] = None
+    ):
+        if history_messages:
+            messages = [dict(message) for message in history_messages]
+        else:
+            messages = []
+            if self.system_prompt:
+                messages.append(MessageTemplate("system", self.system_prompt).to_dict())
+        messages.append(MessageTemplate("user", user_input).to_dict())
+
+        completion = self.create_completion(messages, stream=True)
+        content_parts = []
+        for chunk in completion:
+            if cancel_event and cancel_event.is_set():
+                try:
+                    completion.close()
+                except Exception:
+                    pass
+                break
+            delta = ""
+            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                delta = chunk.choices[0].delta.content
+            if delta:
+                content_parts.append(delta)
+                if on_delta:
+                    on_delta(delta)
+
+        content = "".join(content_parts)
+        if content:
+            messages.append(MessageTemplate("assistant", content).to_dict())
+            self._save_conversation(user_input, content)
+        return messages
+
+    def create_completion(self, messages, stream=False):
         logger.info(f"create_completion called, model={self.model}, base_url={self.base_url}")
         logger.info(f"api_key is {'***' if self.api_key else 'MISSING'}")
         try:
@@ -82,7 +122,8 @@ class ChatClient:
             logger.info("OpenAI client created, calling API...")
             completion = client.chat.completions.create(
                 model=self.model,
-                messages=messages
+                messages=messages,
+                stream=stream
             )
             logger.info("API call successful")
             return completion
@@ -115,6 +156,7 @@ class ChatService:
     def __init__(self, chat_client_dict):
         self.chat_client_dict = chat_client_dict
         self.repository = ConversationRepository()
+        self.cancel_event = threading.Event()
 
     def start_chat(self, user_input):
         logger.info(f"ChatService.start_chat called, user_input={user_input}")
@@ -139,6 +181,82 @@ class ChatService:
             if messages:
                 history_chat_dict[model_name] = messages
         return history_chat_dict
+
+    def _put_stream_event(self, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, event: Dict[str, Any]):
+        asyncio.run_coroutine_threadsafe(queue.put(event), loop).result()
+
+    def _stream_single_model(
+        self,
+        model_name: str,
+        chat_client: ChatClient,
+        user_input: str,
+        history_messages: Optional[List[Dict[str, str]]],
+        queue: asyncio.Queue,
+        loop: asyncio.AbstractEventLoop,
+        cancel_event: threading.Event
+    ):
+        self._put_stream_event(queue, loop, {"type": "start", "model": model_name})
+        try:
+            messages = chat_client.stream_chat(
+                user_input=user_input,
+                history_messages=history_messages,
+                cancel_event=cancel_event,
+                on_delta=lambda content: self._put_stream_event(
+                    queue, loop, {"type": "delta", "model": model_name, "content": content}
+                )
+            )
+            if not cancel_event.is_set():
+                self._put_stream_event(
+                    queue,
+                    loop,
+                    {
+                        "type": "done",
+                        "model": model_name,
+                        "message": messages[-1] if messages else None
+                    }
+                )
+        except Exception as e:
+            if cancel_event.is_set():
+                return
+            logger.error(f"ERROR streaming model {model_name}: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            self._put_stream_event(
+                queue,
+                loop,
+                {"type": "error", "model": model_name, "error": str(e)}
+            )
+
+    async def stream_chat(self, user_input, history_chat_dict: Optional[Dict[str, List[Dict[str, str]]]] = None):
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        tasks = []
+
+        for model_name, chat_client in self.chat_client_dict.items():
+            history_messages = history_chat_dict.get(model_name) if history_chat_dict else None
+            tasks.append(
+                asyncio.create_task(
+                    asyncio.to_thread(
+                        self._stream_single_model,
+                        model_name,
+                        chat_client,
+                        user_input,
+                        history_messages,
+                        queue,
+                        loop,
+                        self.cancel_event
+                    )
+                )
+            )
+
+        async def wait_all():
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await queue.put({"type": "complete"})
+
+        asyncio.create_task(wait_all())
+        return queue
+
+    def cancel_stream(self):
+        self.cancel_event.set()
     
     def search_history(self, keyword: str, limit: int = 20) -> List[Conversation]:
         """搜索历史对话"""

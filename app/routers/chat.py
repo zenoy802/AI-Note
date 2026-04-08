@@ -1,9 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 import os
 import traceback
 import logging
+import json
+import asyncio
 from ..services.chat_service import ChatService, ChatClient
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -29,6 +32,31 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     chat_dict: Dict[str, List[Dict[str, str]]]
 
+
+def _build_chat_clients(model_names: List[str]) -> Dict[str, ChatClient]:
+    chat_clients = {}
+    for model_name in model_names:
+        logger.info(f"Processing model: {model_name}")
+        if model_name not in MODEL_CONFIGS:
+            logger.error(f"Unsupported model: {model_name}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported model: {model_name}"
+            )
+        config = MODEL_CONFIGS[model_name]
+        logger.info(
+            f"Model config: api_key={'***' if config.get('api_key') else 'MISSING'}, "
+            f"base_url={config.get('base_url')}, model={config.get('model')}"
+        )
+        chat_clients[model_name] = ChatClient(
+            api_key=config["api_key"],
+            base_url=config["base_url"],
+            model=config["model"],
+            system_prompt=config.get("system_prompt")
+        )
+        logger.info(f"ChatClient created for {model_name}")
+    return chat_clients
+
 @router.post("/start_chat", response_model=ChatResponse)
 async def start_chat(request: ChatRequest):
     logger.info(f"=== start_chat called ===")
@@ -36,27 +64,8 @@ async def start_chat(request: ChatRequest):
     logger.info(f"Request model_names: {request.model_names}")
     logger.info(f"Request history_chat_dict: {request.history_chat_dict}")
     try:
-        # 根据请求的模型名称初始化聊天客户端
-        chat_clients = {}
-        for model_name in request.model_names:
-            logger.info(f"Processing model: {model_name}")
-            if model_name not in MODEL_CONFIGS:
-                logger.error(f"Unsupported model: {model_name}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unsupported model: {model_name}"
-                )
-            config = MODEL_CONFIGS[model_name]
-            logger.info(f"Model config: api_key={'***' if config.get('api_key') else 'MISSING'}, base_url={config.get('base_url')}, model={config.get('model')}")
-            chat_clients[model_name] = ChatClient(
-                api_key=config["api_key"],
-                base_url=config["base_url"],
-                model=config["model"],
-                system_prompt=config.get("system_prompt")
-            )
-            logger.info(f"ChatClient created for {model_name}")
+        chat_clients = _build_chat_clients(request.model_names)
 
-        # 初始化聊天服务
         chat_service = ChatService(chat_clients)
         logger.info(f"ChatService initialized, calling start_chat...")
         chat_dict = chat_service.start_chat(request.user_input)
@@ -73,23 +82,7 @@ async def continue_chat(request: ChatRequest):
         return await start_chat(request)
     
     try:
-        # 根据历史对话中的模型初始化聊天客户端
-        chat_clients = {}
-        for model_name in request.model_names:
-            if model_name not in MODEL_CONFIGS:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unsupported model: {model_name}"
-                )
-            config = MODEL_CONFIGS[model_name]
-            chat_clients[model_name] = ChatClient(
-                api_key=config["api_key"],
-                base_url=config["base_url"],
-                model=config["model"],
-                system_prompt=config["system_prompt"] if "system_prompt" in config else None
-            )
-        
-        # 初始化聊天服务
+        chat_clients = _build_chat_clients(request.model_names)
         chat_service = ChatService(chat_clients)
         chat_dict = chat_service.continue_chat(
             request.user_input, 
@@ -97,6 +90,35 @@ async def continue_chat(request: ChatRequest):
         )
         return ChatResponse(chat_dict=chat_dict)
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stream_chat")
+async def stream_chat(request: ChatRequest, http_request: Request):
+    try:
+        chat_clients = _build_chat_clients(request.model_names)
+        chat_service = ChatService(chat_clients)
+        queue = await chat_service.stream_chat(request.user_input, request.history_chat_dict)
+
+        async def stream_generator():
+            while True:
+                if await http_request.is_disconnected():
+                    chat_service.cancel_stream()
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    continue
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+                if event.get("type") == "complete":
+                    break
+
+        return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"ERROR in stream_chat: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # 添加历史搜索路由
