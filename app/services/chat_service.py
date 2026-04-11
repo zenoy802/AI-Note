@@ -8,8 +8,16 @@ from typing import Dict, List, Optional, Callable, Any
 
 from ..models.conversation import Conversation
 from ..repositories.conversation_repository import ConversationRepository
+from ..config import MODEL_CONFIGS
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_model_key_by_model_name(model_name: str) -> Optional[str]:
+    for model_key, config in MODEL_CONFIGS.items():
+        if config.get("model") == model_name:
+            return model_key
+    return None
 
 
 class MessageTemplate:
@@ -141,7 +149,8 @@ class ChatClient:
                 user_input=user_input,
                 model_response=model_response,
                 metadata={
-                    "system_prompt": self.system_prompt
+                    "system_prompt": self.system_prompt,
+                    "model_key": _resolve_model_key_by_model_name(self.model)
                 }
             )
             self.repository.save_conversation(conversation)

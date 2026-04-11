@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 import os
 import traceback
@@ -31,6 +31,22 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     chat_dict: Dict[str, List[Dict[str, str]]]
+
+
+def _infer_model_key_from_model_name(model_name: str) -> Optional[str]:
+    for model_key, config in MODEL_CONFIGS.items():
+        if config.get("model") == model_name:
+            return model_key
+    return None
+
+
+def _serialize_conversation(conversation: Conversation) -> Dict[str, Any]:
+    payload = conversation.to_dict()
+    metadata = payload.get("metadata") or {}
+    model_key = metadata.get("model_key") or _infer_model_key_from_model_name(payload.get("model_name", ""))
+    payload["model_key"] = model_key
+    payload["metadata"] = {**metadata, "model_key": model_key}
+    return payload
 
 
 def _build_chat_clients(model_names: List[str]) -> Dict[str, ChatClient]:
@@ -129,7 +145,7 @@ async def search_history(keyword: str, limit: int = 20):
         repository = ConversationRepository()
         results = repository.search_conversations(keyword, limit)
         return {
-            "results": [conv.to_dict() for conv in results],
+            "results": [_serialize_conversation(conv) for conv in results],
             "count": len(results)
         }
     except Exception as e:
@@ -142,7 +158,7 @@ async def get_recent_history(days: int = 7, limit: int = 50):
         repository = ConversationRepository()
         results = repository.get_recent_conversations(days, limit)
         return {
-            "results": [conv.to_dict() for conv in results],
+            "results": [_serialize_conversation(conv) for conv in results],
             "count": len(results)
         }
     except Exception as e:
@@ -156,7 +172,7 @@ async def get_conversation(conversation_id: str):
         conversation = repository.get_conversation_by_id(conversation_id)
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        return conversation.to_dict()
+        return _serialize_conversation(conversation)
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e

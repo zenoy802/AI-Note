@@ -120,7 +120,8 @@ class VectorDBService:
                 "parent_id": chunk["parent_id"],
                 "model_name": chunk["model_name"],
                 "timestamp": chunk["timestamp"].isoformat() if isinstance(chunk["timestamp"], datetime) else chunk["timestamp"],
-                "metadata": json.dumps(chunk["metadata"])
+                "metadata": json.dumps(chunk["metadata"]),
+                "model_key": chunk["metadata"].get("model_key", "")
             }
             for chunk in chunks
         ]
@@ -162,6 +163,7 @@ class VectorDBService:
                     "parent_id": metadatas[i]["parent_id"],
                     "model_name": metadatas[i]["model_name"],
                     "timestamp": metadatas[i]["timestamp"],
+                    "model_key": metadatas[i].get("model_key"),
                     "metadata": json.loads(metadatas[i]["metadata"]) if isinstance(metadatas[i]["metadata"], str) else metadatas[i]["metadata"]
                 },
                 "relevance_score": 1 - (distances[i] / 2)  # 转换距离为相关性分数

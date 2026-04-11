@@ -11,6 +11,7 @@ import {
   Tooltip,
   Chip,
   Avatar,
+  Alert,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
@@ -21,6 +22,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ModelCard } from '../components/ModelCard';
 import { colors } from '../theme';
 import { useTheme } from '@mui/material/styles';
@@ -43,6 +45,19 @@ interface StreamEvent {
   error?: string;
 }
 
+interface ConversationDetailResponse {
+  id: string;
+  model_name: string;
+  model_key?: string | null;
+  metadata?: {
+    model_key?: string | null;
+  };
+  chat_history: Array<{
+    role: string;
+    content: string;
+  }>;
+}
+
 interface ChatPageProps {
   selectedModels: string[];
   onModelsChange: (models: string[]) => void;
@@ -61,9 +76,13 @@ const createMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(
 
 const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) => {
   const theme = useTheme();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -93,6 +112,71 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
     };
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const conversationId = params.get('conversation_id');
+    if (!conversationId) return;
+
+    const inferModelKey = (data: ConversationDetailResponse): string | null => {
+      const candidates = [data.model_key, data.metadata?.model_key, data.model_name];
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        const lower = candidate.toLowerCase();
+        if (availableModels.includes(candidate)) return candidate;
+        const matched = availableModels.find((model) => lower.includes(model.toLowerCase()));
+        if (matched) return matched;
+        if (lower.includes('qwen')) return 'qwen';
+        if (lower.includes('kimi')) return 'kimi';
+        if (lower.includes('deepseek')) return 'deepseek';
+      }
+      return availableModels.length > 0 ? availableModels[0] : null;
+    };
+
+    const loadConversation = async () => {
+      setIsLoadingConversation(true);
+      setRestoreMessage(null);
+      try {
+        const response = await axios.get('/api/chat/history/conversation', {
+          params: { conversation_id: conversationId },
+        });
+        const data = response.data as ConversationDetailResponse;
+        if (!data || !Array.isArray(data.chat_history)) {
+          throw new Error('Invalid conversation payload');
+        }
+
+        const modelKey = inferModelKey(data);
+        if (modelKey) {
+          onModelsChange([modelKey]);
+        }
+
+        const mappedMessages: Message[] = data.chat_history
+          .filter(
+            (msg) =>
+              (msg.role === 'user' || msg.role === 'assistant') &&
+              typeof msg.content === 'string' &&
+              msg.content.length > 0
+          )
+          .map((msg) => ({
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content,
+            model: msg.role === 'assistant' ? modelKey || data.model_name : undefined,
+          }));
+
+        setMessages(mappedMessages);
+        setRestoreMessage('已加载历史对话，可直接继续提问');
+      } catch (error) {
+        console.error('Error loading conversation from search:', error);
+        setMessages([]);
+        setRestoreMessage('历史对话加载失败，已切换为新会话');
+      } finally {
+        setIsLoadingConversation(false);
+        navigate('/chat', { replace: true });
+      }
+    };
+
+    loadConversation();
+  }, [location.search, availableModels, onModelsChange, navigate]);
+
   // 处理模型切换
   const toggleModel = (model: string) => {
     if (selectedModels.includes(model)) {
@@ -113,7 +197,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
 
   // 处理发送消息
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || isLoadingConversation || selectedModels.length === 0) return;
 
     const userInput = input;
     const userMessage: Message = { role: 'user', content: userInput };
@@ -333,9 +417,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
           ))}
         </Box>
       </Paper>
+      {restoreMessage && (
+        <Alert severity={restoreMessage.includes('失败') ? 'warning' : 'info'} sx={{ mb: 2 }}>
+          {restoreMessage}
+        </Alert>
+      )}
 
       {/* Chat Messages - Multi-column layout */}
-      {messages.length === 0 ? (
+      {messages.length === 0 || isLoadingConversation ? (
         <Paper
           elevation={0}
           sx={{
@@ -375,30 +464,36 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
               <Typography sx={{ fontSize: 40 }}>💬</Typography>
             </Box>
             <Typography variant="h6" fontWeight={600} gutterBottom>
-              开始对话
+              {isLoadingConversation ? '正在加载历史对话' : '开始对话'}
             </Typography>
-            <Typography variant="body2" color="text.secondary" align="center" sx={{ maxWidth: 400 }}>
-              选择上方的 AI 模型，输入您的问题开始对话。
-              <br />
-              可以同时选择多个模型进行对比。
-            </Typography>
-            <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
-              {['写一篇关于春天的诗歌', '解释量子计算原理', '帮我优化这段代码'].map((prompt) => (
-                <Chip
-                  key={prompt}
-                  label={prompt}
-                  variant="outlined"
-                  onClick={() => setInput(prompt)}
-                  sx={{
-                    cursor: 'pointer',
-                    '&:hover': {
-                      bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
-                      borderColor: 'primary.main',
-                    },
-                  }}
-                />
-              ))}
-            </Box>
+            {isLoadingConversation ? (
+              <CircularProgress size={24} sx={{ mt: 1 }} />
+            ) : (
+              <>
+                <Typography variant="body2" color="text.secondary" align="center" sx={{ maxWidth: 400 }}>
+                  选择上方的 AI 模型，输入您的问题开始对话。
+                  <br />
+                  可以同时选择多个模型进行对比。
+                </Typography>
+                <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
+                  {['写一篇关于春天的诗歌', '解释量子计算原理', '帮我优化这段代码'].map((prompt) => (
+                    <Chip
+                      key={prompt}
+                      label={prompt}
+                      variant="outlined"
+                      onClick={() => setInput(prompt)}
+                      sx={{
+                        cursor: 'pointer',
+                        '&:hover': {
+                          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
+                          borderColor: 'primary.main',
+                        },
+                      }}
+                    />
+                  ))}
+                </Box>
+              </>
+            )}
           </Box>
         </Paper>
       ) : (
@@ -648,7 +743,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={loading}
+            disabled={loading || isLoadingConversation}
             inputRef={inputRef}
             sx={{
               '& .MuiOutlinedInput-root': {
@@ -661,7 +756,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
             color={loading ? 'error' : 'primary'}
             endIcon={loading ? <StopIcon /> : <SendIcon />}
             onClick={loading ? handleStop : handleSend}
-            disabled={!loading && !input.trim()}
+            disabled={isLoadingConversation || selectedModels.length === 0 || (!loading && !input.trim())}
             sx={{
               py: 1.5,
               px: 3,

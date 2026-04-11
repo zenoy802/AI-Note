@@ -19,8 +19,10 @@ import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import StorageIcon from '@mui/icons-material/Storage';
+import ChatIcon from '@mui/icons-material/Chat';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
+import { useNavigate } from 'react-router-dom';
 import { colors } from '../theme';
 
 interface SearchResult {
@@ -41,8 +43,18 @@ interface SearchPageProps {
   selectedModels: string[];
 }
 
+interface PersistedSearchState {
+  query: string;
+  topK: number;
+  results: SearchResult | null;
+  error: string | null;
+}
+
+const SEARCH_PAGE_STATE_KEY = 'searchPageState';
+
 const SearchPage: React.FC<SearchPageProps> = ({ selectedModels }) => {
   const theme = useTheme();
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResult | null>(null);
@@ -51,6 +63,44 @@ const SearchPage: React.FC<SearchPageProps> = ({ selectedModels }) => {
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexStatus, setIndexStatus] = useState<{ indexed_chunks: number } | null>(null);
   const [indexMessage, setIndexMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem(SEARCH_PAGE_STATE_KEY);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as PersistedSearchState;
+      if (typeof parsed.query === 'string') {
+        setQuery(parsed.query);
+      }
+      if (typeof parsed.topK === 'number') {
+        setTopK(parsed.topK);
+      }
+      if (parsed.results) {
+        setResults(parsed.results);
+      }
+      if (typeof parsed.error === 'string') {
+        setError(parsed.error);
+      }
+    } catch {
+      sessionStorage.removeItem(SEARCH_PAGE_STATE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const hasState = query.trim() || results || error || topK !== 5;
+    if (!hasState) {
+      sessionStorage.removeItem(SEARCH_PAGE_STATE_KEY);
+      return;
+    }
+    const payload: PersistedSearchState = {
+      query,
+      topK,
+      results,
+      error,
+    };
+    sessionStorage.setItem(SEARCH_PAGE_STATE_KEY, JSON.stringify(payload));
+  }, [query, topK, results, error, loading]);
 
   const handleSearch = async () => {
     if (!query.trim() || loading) return;
@@ -244,6 +294,10 @@ const SearchPage: React.FC<SearchPageProps> = ({ selectedModels }) => {
     'Python 异步编程',
     '数据库优化技巧',
   ];
+
+  const handleContinueChat = (conversationId: string) => {
+    navigate(`/chat?conversation_id=${encodeURIComponent(conversationId)}&from=search`);
+  };
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -450,6 +504,17 @@ const SearchPage: React.FC<SearchPageProps> = ({ selectedModels }) => {
                     <Typography variant="caption" color="text.secondary">
                       {formatDate(result.metadata.timestamp)}
                     </Typography>
+                    <Box sx={{ ml: 'auto' }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ChatIcon />}
+                        onClick={() => handleContinueChat(result.metadata.parent_id)}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        继续对话
+                      </Button>
+                    </Box>
                   </Box>
 
                   <Typography
