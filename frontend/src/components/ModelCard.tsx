@@ -13,15 +13,20 @@ interface ModelCardProps {
 
 const getModelColor = (name: string): string => {
   const lowerName = name.toLowerCase();
+  if (lowerName.includes('gemini')) return colors.models.gemini;
+  if (lowerName.includes('claude')) return colors.models.claude;
+  if (lowerName.includes('gpt')) return colors.models.gpt;
   if (lowerName.includes('qwen')) return colors.models.qwen;
   if (lowerName.includes('kimi')) return colors.models.kimi;
   if (lowerName.includes('deepseek')) return colors.models.deepseek;
-  if (lowerName.includes('gpt') || lowerName.includes('claude')) return colors.models.gpt;
   return colors.primary.main;
 };
 
 const getModelDescription = (name: string): string => {
   const lowerName = name.toLowerCase();
+  if (lowerName.includes('gemini')) return 'Google Gemini 系列模型';
+  if (lowerName.includes('claude')) return 'Anthropic Claude 系列模型';
+  if (lowerName.includes('gpt')) return 'OpenAI GPT 系列模型';
   if (lowerName.includes('qwen')) return '阿里云通义千问大模型';
   if (lowerName.includes('kimi')) return 'Moonshot AI 助手';
   if (lowerName.includes('deepseek')) return '深度求索 reasoning 模型';

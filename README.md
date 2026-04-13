@@ -32,10 +32,16 @@ An API service for multi-model chat and conversation history management.
    DASHSCOPE_API_KEY=your_dashscope_api_key
    MOONSHOT_API_KEY=your_moonshot_api_key
    DEEPSEEK_API_KEY=your_deepseek_api_key
+   GEMINI_API_KEY=your_gemini_api_key
+   CLAUDE_API_KEY=your_claude_api_key
+   GPT_API_KEY=your_openai_api_key
 
    DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
    MOONSHOT_BASE_URL=https://api.moonshot.cn/v1
    DEEPSEEK_BASE_URL=https://api.deepseek.com
+   GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+   CLAUDE_BASE_URL=your_claude_openai_compatible_base_url
+   GPT_BASE_URL=https://api.openai.com/v1
    ```
 
 4. Install frontend dependencies:

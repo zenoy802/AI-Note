@@ -15,6 +15,9 @@ interface MessageBubbleProps {
 const getModelColor = (model?: string): string => {
   if (!model) return colors.primary.main;
   const lowerName = model.toLowerCase();
+  if (lowerName.includes('gemini')) return colors.models.gemini;
+  if (lowerName.includes('claude')) return colors.models.claude;
+  if (lowerName.includes('gpt')) return colors.models.gpt;
   if (lowerName.includes('qwen')) return colors.models.qwen;
   if (lowerName.includes('kimi')) return colors.models.kimi;
   if (lowerName.includes('deepseek')) return colors.models.deepseek;

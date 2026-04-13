@@ -48,7 +48,7 @@ const HistoryPage: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<ConversationDetail | null>(null);
-  const [availableModels, setAvailableModels] = useState<string[]>(['qwen', 'kimi', 'deepseek']);
+  const [availableModels, setAvailableModels] = useState<string[]>(['gemini', 'claude', 'gpt']);
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -196,6 +196,9 @@ const HistoryPage: React.FC = () => {
   const getModelColor = (modelName?: string) => {
     if (!modelName) return colors.primary.main;
     const lower = modelName.toLowerCase();
+    if (lower.includes('gemini')) return colors.models.gemini;
+    if (lower.includes('claude')) return colors.models.claude;
+    if (lower.includes('gpt')) return colors.models.gpt;
     if (lower.includes('qwen')) return colors.models.qwen;
     if (lower.includes('kimi')) return colors.models.kimi;
     if (lower.includes('deepseek')) return colors.models.deepseek;

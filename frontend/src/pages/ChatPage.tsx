@@ -66,6 +66,9 @@ interface ChatPageProps {
 const getModelColor = (model?: string): string => {
   if (!model) return colors.primary.main;
   const lowerName = model.toLowerCase();
+  if (lowerName.includes('gemini')) return colors.models.gemini;
+  if (lowerName.includes('claude')) return colors.models.claude;
+  if (lowerName.includes('gpt')) return colors.models.gpt;
   if (lowerName.includes('qwen')) return colors.models.qwen;
   if (lowerName.includes('kimi')) return colors.models.kimi;
   if (lowerName.includes('deepseek')) return colors.models.deepseek;
@@ -73,6 +76,14 @@ const getModelColor = (model?: string): string => {
 };
 
 const createMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const getDefaultModel = (models: string[]): string | null => {
+  const preferredOrder = ['gemini', 'claude', 'gpt'];
+  for (const model of preferredOrder) {
+    if (models.includes(model)) return model;
+  }
+  return models.length > 0 ? models[0] : null;
+};
 
 const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) => {
   const theme = useTheme();
@@ -93,14 +104,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
       try {
         const response = await axios.get('/api/chat/available_models');
         setAvailableModels(response.data.models);
-        if (response.data.models.length > 0 && selectedModels.length === 0) {
-          onModelsChange([response.data.models[0]]);
+        const defaultModel = getDefaultModel(response.data.models);
+        if (defaultModel && selectedModels.length === 0) {
+          onModelsChange([defaultModel]);
         }
       } catch (error) {
         console.error('Error fetching available models:', error);
-        setAvailableModels(['qwen', 'kimi', 'deepseek']);
+        const fallbackModels = ['gemini', 'claude', 'gpt'];
+        setAvailableModels(fallbackModels);
         if (selectedModels.length === 0) {
-          onModelsChange(['qwen']);
+          onModelsChange(['gemini']);
         }
       }
     };
@@ -125,11 +138,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
         if (availableModels.includes(candidate)) return candidate;
         const matched = availableModels.find((model) => lower.includes(model.toLowerCase()));
         if (matched) return matched;
+        if (lower.includes('gemini')) return 'gemini';
+        if (lower.includes('claude')) return 'claude';
+        if (lower.includes('gpt')) return 'gpt';
         if (lower.includes('qwen')) return 'qwen';
         if (lower.includes('kimi')) return 'kimi';
         if (lower.includes('deepseek')) return 'deepseek';
       }
-      return availableModels.length > 0 ? availableModels[0] : null;
+      return getDefaultModel(availableModels);
     };
 
     const loadConversation = async () => {
@@ -297,27 +313,50 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedModels, onModelsChange }) =
         }
       };
 
+      const processBuffer = (raw: string, isFinal = false): string => {
+        const lines = raw.split('\n');
+        let remaining = isFinal ? '' : lines.pop() || '';
+
+        for (const line of lines) {
+          const payload = line.trim();
+          if (!payload) continue;
+          try {
+            const event = JSON.parse(payload) as StreamEvent;
+            handleStreamEvent(event);
+          } catch (parseError) {
+            console.error('Error parsing stream event line:', parseError, payload);
+            remaining = payload + (remaining ? `\n${remaining}` : '');
+          }
+        }
+
+        if (isFinal) {
+          const tail = remaining.trim();
+          if (tail) {
+            try {
+              const event = JSON.parse(tail) as StreamEvent;
+              handleStreamEvent(event);
+              return '';
+            } catch (parseError) {
+              console.error('Error parsing final stream payload:', parseError, tail);
+            }
+          }
+          return '';
+        }
+
+        return remaining;
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        lines.forEach((line) => {
-          const payload = line.trim();
-          if (!payload) return;
-          const event = JSON.parse(payload) as StreamEvent;
-          handleStreamEvent(event);
-        });
+        buffer = processBuffer(buffer);
       }
 
-      const finalPayload = buffer.trim();
-      if (finalPayload) {
-        const event = JSON.parse(finalPayload) as StreamEvent;
-        handleStreamEvent(event);
-      }
+      // Flush decoder internal buffer to avoid dropping trailing multibyte chars.
+      buffer += decoder.decode();
+      processBuffer(buffer, true);
     } catch (error) {
       const isAbortError =
         (error instanceof DOMException && error.name === 'AbortError') ||

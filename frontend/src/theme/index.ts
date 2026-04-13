@@ -21,6 +21,7 @@ export const colors = {
   },
   // 模型品牌色
   models: {
+    gemini: '#3b82f6',   // Gemini - 蓝色
     qwen: '#6366f1',     // 通义千问 - 靛蓝
     kimi: '#10b981',     // Kimi - 翠绿
     deepseek: '#06b6d4', // DeepSeek - 青色
